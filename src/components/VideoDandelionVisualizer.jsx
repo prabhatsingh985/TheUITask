@@ -156,7 +156,9 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
       ...ray,
       orbitAngle: ray.orbitPhase,
       angularVel: ray.orbitSpeed,
-      hoverInfluence: 0
+      hoverInfluence: 0,
+      currentRepelX: 0,
+      currentRepelY: 0
     }));
   }, []);
 
@@ -212,25 +214,26 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         const baseTipX = originX + Math.cos(ray.baseAngle) * baseLen;
         const baseTipY = originY - Math.sin(ray.baseAngle) * baseLen;
 
-        // Calculate distance from cursor directly to the dots of this ray
-        // (Ensures only dots surrounding the cursor move; distant top dots remain completely still)
+        // Calculate distance from cursor directly to this ray's tip dot
+        // (Ensures only dots surrounding the cursor move; distant dots remain completely still)
         let targetInfluence = 0;
+        let minDistToDot = 9999;
+
+        // Dynamic scale factor based on ray length (0.0 to 1.0):
+        // Core/bottom rays have lenRatio ~0.08 to 0.28 -> factor ~0.0 to 0.08
+        // Upper canopy rays have lenRatio ~0.70 to 1.0 -> factor ~0.60 to 1.0
+        const lenRatio = Math.min(1.0, Math.max(0.08, baseLen / maxRadius));
+        const factor = Math.pow((lenRatio - 0.08) / 0.92, 1.4);
+
         if (isMouseActive) {
           const distToTip = Math.hypot(mouse.x - baseTipX, mouse.y - baseTipY);
-          let minDistToDot = distToTip;
+          minDistToDot = distToTip;
 
-          if (ray.hasIntermediate) {
-            const imX = originX + Math.cos(ray.baseAngle) * (baseLen * ray.intermediatePos);
-            const imY = originY - Math.sin(ray.baseAngle) * (baseLen * ray.intermediatePos);
-            const distToIm = Math.hypot(mouse.x - imX, mouse.y - imY);
-            if (distToIm < minDistToDot) {
-              minDistToDot = distToIm;
-            }
-          }
-
-          const HOVER_RADIUS = 95; // Slightly wider localized cluster around cursor
-          if (minDistToDot < HOVER_RADIUS) {
-            targetInfluence = Math.pow(1 - minDistToDot / HOVER_RADIUS, 1.25);
+          // Localized hover radius: focused (~58px) near dense bottom core,
+          // expanding to spacious (~95px) for top outer canopy
+          const hoverRadius = 58 + factor * 37;
+          if (distToTip < hoverRadius) {
+            targetInfluence = Math.pow(1 - distToTip / hoverRadius, 1.25);
           }
         }
 
@@ -261,21 +264,46 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           ray.orbitAngle += ray.angularVel * 0.018;
         }
 
-        // Dynamic 360° orbital circle with larger, more prominent radius around mouse cursor
-        const hoverRadiusAdd = inf * (35 + Math.min(42, currentMouseSpeed * 0.50));
-        const currentOrbitRadius = ray.orbitRadius + hoverRadiusAdd;
+        // 1. Repulsion away from cursor ("points with lines cursor se dur bhagni chahiye"):
+        // Bottom lines get gentle, subtle push (~10-14px), top lines get full dynamic push (~85-100px)
+        let targetRepelX = 0;
+        let targetRepelY = 0;
+        if (isMouseActive && minDistToDot < 9999 && inf > 0.005) {
+          const dx = baseTipX - mouse.x;
+          const dy = baseTipY - mouse.y;
+          const d = Math.hypot(dx, dy) || 1;
+          const nx = dx / d;
+          const ny = dy / d;
+
+          const repelScale = 0.14 + factor * 1.36; // ~0.15 for bottom rays, ~1.50 for top rays
+          const maxRepel = (36 + Math.min(32, currentMouseSpeed * 0.40)) * repelScale;
+          targetRepelX = nx * (inf * maxRepel);
+          targetRepelY = ny * (inf * maxRepel);
+        }
+
+        // Smooth spring physics for repulsion
+        ray.currentRepelX += (targetRepelX - ray.currentRepelX) * 0.25;
+        ray.currentRepelY += (targetRepelY - ray.currentRepelY) * 0.25;
+
+        // 2. Dynamic 360° orbital circle ("especially upar points with more radius of rotating"):
+        // Bottom lines stay small and neat (~10-16px orbit), top canopy lines rotate in wide ~115-125px circles
+        const radiusScale = 0.12 + factor * 1.48; // ~0.14 for bottom rays, ~1.60 for top rays
+        const hoverRadiusAdd = inf * (35 + Math.min(42, currentMouseSpeed * 0.50)) * radiusScale;
+        const currentOrbitRadius = (ray.orbitRadius * radiusScale) + hoverRadiusAdd;
         const orbitDx = Math.cos(ray.orbitAngle) * currentOrbitRadius;
         const orbitDy = Math.sin(ray.orbitAngle) * currentOrbitRadius * 0.65; // Fuller 3D circular form
         const orbitDz = Math.sin(ray.orbitAngle); // depth layer factor
 
-        const tipX = baseTipX + orbitDx;
-        const tipY = baseTipY + orbitDy;
+        // Combined position: Base + 360° rotation + Pushing away from cursor
+        const tipX = baseTipX + orbitDx + ray.currentRepelX;
+        const tipY = baseTipY + orbitDy + ray.currentRepelY;
 
-        // Organic flexible curve towards moving dot (entire stem sways with the 360° circle)
+        // Organic flexible curve towards moving dot (entire stem sways with 360° circle and bends away from cursor)
         const midRatio = 0.52;
-        const stemOrbitFactor = 0.40 + inf * 0.28;
-        const midX = originX + Math.cos(ray.baseAngle) * (baseLen * midRatio) + orbitDx * stemOrbitFactor;
-        const midY = originY - Math.sin(ray.baseAngle) * (baseLen * midRatio) + orbitDy * stemOrbitFactor;
+        const stemOrbitFactor = (0.22 + factor * 0.20) + inf * 0.20;
+        const stemRepelFactor = 0.25 + factor * 0.30;
+        const midX = originX + Math.cos(ray.baseAngle) * (baseLen * midRatio) + orbitDx * stemOrbitFactor + ray.currentRepelX * stemRepelFactor;
+        const midY = originY - Math.sin(ray.baseAngle) * (baseLen * midRatio) + orbitDy * stemOrbitFactor + ray.currentRepelY * stemRepelFactor;
 
         // Stem starting point
         const uStart = Math.max(0.04, 1.0 - ray.stemFraction);
@@ -302,13 +330,15 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
           ctx.strokeStyle = grad;
           const baseWidth = (ray.tier === 'core' ? 0.42 : (ray.tier === 'mid' ? 0.48 : (inf > 0.15 ? 0.78 : 0.55)));
-          ctx.lineWidth = (baseWidth + inf * 0.25) * (0.6 + 0.4 * lineVisibility);
+          const widthGrowth = (0.06 + factor * 0.20) * inf;
+          ctx.lineWidth = (baseWidth + widthGrowth) * (0.6 + 0.4 * lineVisibility);
           ctx.stroke();
 
           // Tip Dot Node (only shown when rotating in front)
           ctx.beginPath();
           const depthScale = 1.0 + orbitDz * 0.18;
-          const tipSize = ray.dotSize * (1.0 + inf * 0.50) * depthScale;
+          const dotGrowth = (0.12 + factor * 0.38) * inf;
+          const tipSize = ray.dotSize * (1.0 + dotGrowth) * depthScale;
           ctx.arc(tipX, tipY, Math.max(0.6, tipSize), 0, Math.PI * 2);
           ctx.fillStyle = currentTheme.tipDot;
           ctx.globalAlpha = lineVisibility;

@@ -21,80 +21,125 @@ function getPointOnBezier(u, p0x, p0y, p1x, p1y, p2x, p2y) {
   };
 }
 
+// Deterministic pseudo-random number generator (Mulberry32)
+// Guarantees 100% identical layout, lengths, and dots across every page reload
+function createSeededRandom(seed = 985721) {
+  let s = seed;
+  return function() {
+    let t = (s += 0x6D2B79F5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function generateStaticRays() {
+  const rand = createSeededRandom(985721);
+  const list = [];
+
+  // 1. Outer Canopy Rays (340 rays)
+  const CANOPY_COUNT = 340;
+  for (let i = 0; i < CANOPY_COUNT; i++) {
+    const t = i / (CANOPY_COUNT - 1);
+    const angleJitter = (rand() - 0.5) * 0.015;
+    const baseAngle = Math.PI - (0.08 + t * (Math.PI - 0.16)) + angleJitter;
+
+    // Canopy lengths from 0.50 to 1.0
+    const lengthVariance = 0.50 + rand() * 0.50;
+    const waveSpeed = 0.6 + rand() * 1.2;
+    const waveOffset = rand() * Math.PI * 2;
+    const dotSize = 1.1 + rand() * 2.1;
+    const stemFraction = 0.70 + rand() * 0.20; // stem extends gracefully down, fading to 0 opacity
+    const hasIntermediate = rand() > 0.65;
+    const intermediatePos = 0.38 + rand() * 0.35;
+
+    list.push({
+      baseAngle,
+      lengthVariance,
+      waveSpeed,
+      waveOffset,
+      dotSize,
+      stemFraction,
+      hasIntermediate,
+      intermediatePos,
+      tier: 'outer'
+    });
+  }
+
+  // 2. Mid-layer Filling Rays (160 rays)
+  const MID_COUNT = 160;
+  for (let i = 0; i < MID_COUNT; i++) {
+    const t = i / (MID_COUNT - 1);
+    const angleJitter = (rand() - 0.5) * 0.022;
+    const baseAngle = Math.PI - (0.10 + t * (Math.PI - 0.20)) + angleJitter;
+
+    // Mid lengths from 0.26 to 0.54
+    const lengthVariance = 0.26 + rand() * 0.28;
+    const waveSpeed = 0.5 + rand() * 1.1;
+    const waveOffset = rand() * Math.PI * 2;
+    const dotSize = 0.9 + rand() * 1.4;
+    const stemFraction = 0.72 + rand() * 0.20;
+    const hasIntermediate = false;
+
+    list.push({
+      baseAngle,
+      lengthVariance,
+      waveSpeed,
+      waveOffset,
+      dotSize,
+      stemFraction,
+      hasIntermediate: false,
+      intermediatePos: 0,
+      tier: 'mid'
+    });
+  }
+
+  // 3. Core Inner Rays filling the hollow empty space right above the replay button (140 rays)
+  const CORE_COUNT = 140;
+  for (let i = 0; i < CORE_COUNT; i++) {
+    const t = i / (CORE_COUNT - 1);
+    const angleJitter = (rand() - 0.5) * 0.028;
+    const baseAngle = Math.PI - (0.12 + t * (Math.PI - 0.24)) + angleJitter;
+
+    // Core lengths directly occupying the hollow space (0.08 to 0.28)
+    const lengthVariance = 0.08 + rand() * 0.20;
+    const waveSpeed = 0.45 + rand() * 1.0;
+    const waveOffset = rand() * Math.PI * 2;
+    const dotSize = 0.75 + rand() * 1.1;
+    const stemFraction = 0.75 + rand() * 0.18; // delicate faded stem
+    const hasIntermediate = false;
+
+    list.push({
+      baseAngle,
+      lengthVariance,
+      waveSpeed,
+      waveOffset,
+      dotSize,
+      stemFraction,
+      hasIntermediate: false,
+      intermediatePos: 0,
+      tier: 'core'
+    });
+  }
+
+  return list;
+}
+
+const STATIC_RAYS = generateStaticRays();
+
 export default function VideoDandelionVisualizer({ currentTheme }) {
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
   const mouseRef = useRef({ x: -1000, y: -1000, active: false });
   const raysRef = useRef([]);
 
-  // Generate dandelion radial filaments:
-  // Both main canopy rays and inner filling rays ("small small lines with dots")
-  // so the visualizer looks lush and full ("bhara bhara") without clustering at the bottom
+  // Initialize with fixed deterministic structure so it never changes on reload
   useEffect(() => {
-    const list = [];
-
-    // 1. Main outer & mid canopy rays (380 rays)
-    const MAIN_COUNT = 380;
-    for (let i = 0; i < MAIN_COUNT; i++) {
-      const t = i / (MAIN_COUNT - 1);
-      const angleJitter = (Math.random() - 0.5) * 0.015;
-      const baseAngle = Math.PI - (0.08 + t * (Math.PI - 0.16)) + angleJitter;
-
-      // Canopy lengths from 0.44 to 1.0
-      const lengthVariance = 0.44 + Math.random() * 0.56;
-      const waveSpeed = 0.6 + Math.random() * 1.2;
-      const waveOffset = Math.random() * Math.PI * 2;
-      const dotSize = 1.0 + Math.random() * 2.2;
-      const stemFraction = 0.28 + Math.random() * 0.16; // stem covers last 28%-44% right before dot
-      const hasIntermediate = Math.random() > 0.75;
-      const intermediatePos = 0.42 + Math.random() * 0.35;
-
-      list.push({
-        baseAngle,
-        lengthVariance,
-        currentLengthAdd: 0,
-        targetLengthAdd: 0,
-        waveSpeed,
-        waveOffset,
-        dotSize,
-        stemFraction,
-        hasIntermediate,
-        intermediatePos,
-        isInner: false
-      });
-    }
-
-    // 2. Inner filling "small small lines with dots" to fill the missing spaces (180 rays)
-    const INNER_COUNT = 180;
-    for (let i = 0; i < INNER_COUNT; i++) {
-      const t = i / (INNER_COUNT - 1);
-      const angleJitter = (Math.random() - 0.5) * 0.025;
-      const baseAngle = Math.PI - (0.12 + t * (Math.PI - 0.24)) + angleJitter;
-
-      // Inner space length from 0.18 to 0.46
-      const lengthVariance = 0.18 + Math.random() * 0.28;
-      const waveSpeed = 0.5 + Math.random() * 1.1;
-      const waveOffset = Math.random() * Math.PI * 2;
-      const dotSize = 0.8 + Math.random() * 1.3;
-      const stemFraction = 0.36 + Math.random() * 0.20; // short delicate stem
-      const hasIntermediate = false;
-
-      list.push({
-        baseAngle,
-        lengthVariance,
-        currentLengthAdd: 0,
-        targetLengthAdd: 0,
-        waveSpeed,
-        waveOffset,
-        dotSize,
-        stemFraction,
-        hasIntermediate: false,
-        intermediatePos: 0,
-        isInner: true
-      });
-    }
-
-    raysRef.current = list;
+    raysRef.current = STATIC_RAYS.map(ray => ({
+      ...ray,
+      currentLengthAdd: 0,
+      targetLengthAdd: 0
+    }));
   }, []);
 
   useEffect(() => {
@@ -144,9 +189,10 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
       // Pre-compute gradient color stops for current theme to maximize 60fps performance
       const rgb = extractRgb(currentTheme.rayLine);
       const colorStop0 = `rgba(${rgb}, 0)`;
-      const colorStop1 = `rgba(${rgb}, 0.08)`;
-      const colorStop2 = `rgba(${rgb}, 0.35)`;
-      const colorStop3 = `rgba(${rgb}, 0.8)`;
+      const colorStop1 = `rgba(${rgb}, 0.06)`;
+      const colorStop2 = `rgba(${rgb}, 0.20)`;
+      const colorStop3 = `rgba(${rgb}, 0.48)`;
+      const colorStop4 = `rgba(${rgb}, 0.82)`;
 
       // Render all dandelion filaments
       const rays = raysRef.current;
@@ -193,10 +239,10 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         const midX = originX + Math.cos(angle + sway * 0.5) * (totalLen * midRatio);
         const midY = originY - Math.sin(angle + sway * 0.5) * (totalLen * midRatio);
 
-        // Draw stem just before tip dot:
-        // Tail starts with 0 opacity (no cluster at bottom center origin),
-        // opacity gradually increases upwards and connects into the dot
-        const uStart = Math.max(0.06, 1.0 - ray.stemFraction);
+        // Draw stem leading into tip dot:
+        // Tail starts with 0 opacity (clean origin, no harsh clutter at bottom),
+        // opacity gradually increases upwards, filling the space softly and connecting into the dot
+        const uStart = Math.max(0.04, 1.0 - ray.stemFraction);
         const pStart = getPointOnBezier(uStart, originX, originY, midX, midY, tipX, tipY);
         const pMid = getPointOnBezier((uStart + 1.0) / 2, originX, originY, midX, midY, tipX, tipY);
 
@@ -205,15 +251,16 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
 
         const grad = ctx.createLinearGradient(pStart.x, pStart.y, tipX, tipY);
         grad.addColorStop(0, colorStop0);
-        grad.addColorStop(0.35, colorStop1);
-        grad.addColorStop(0.7, colorStop2);
-        grad.addColorStop(1, ray.isInner ? colorStop2 : colorStop3);
+        grad.addColorStop(0.2, colorStop1);
+        grad.addColorStop(0.5, colorStop2);
+        grad.addColorStop(0.8, colorStop3);
+        grad.addColorStop(1, ray.tier === 'core' ? colorStop3 : colorStop4);
 
         ctx.beginPath();
         ctx.moveTo(pStart.x, pStart.y);
         ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
         ctx.strokeStyle = grad;
-        ctx.lineWidth = ray.isInner ? 0.45 : (ray.currentLengthAdd > 15 ? 0.75 : 0.55);
+        ctx.lineWidth = ray.tier === 'core' ? 0.42 : (ray.tier === 'mid' ? 0.48 : (ray.currentLengthAdd > 15 ? 0.75 : 0.55));
         ctx.stroke();
 
         // Draw Tip Dot Node
@@ -226,7 +273,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         // Draw Intermediate Dot with subtle fading stem leading into it
         if (ray.hasIntermediate) {
           const imPos = ray.intermediatePos;
-          const imUStart = Math.max(0.05, imPos * (1.0 - ray.stemFraction));
+          const imUStart = Math.max(0.04, imPos * (1.0 - ray.stemFraction));
           const imStart = getPointOnBezier(imUStart, originX, originY, midX, midY, tipX, tipY);
           const imMid = getPointOnBezier((imUStart + imPos) / 2, originX, originY, midX, midY, tipX, tipY);
           const imEnd = getPointOnBezier(imPos, originX, originY, midX, midY, tipX, tipY);
@@ -236,18 +283,19 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
 
           const imGrad = ctx.createLinearGradient(imStart.x, imStart.y, imEnd.x, imEnd.y);
           imGrad.addColorStop(0, colorStop0);
-          imGrad.addColorStop(0.4, colorStop1);
-          imGrad.addColorStop(1, colorStop2);
+          imGrad.addColorStop(0.3, colorStop1);
+          imGrad.addColorStop(0.7, colorStop2);
+          imGrad.addColorStop(1, colorStop3);
 
           ctx.beginPath();
           ctx.moveTo(imStart.x, imStart.y);
           ctx.quadraticCurveTo(imCtrlX, imCtrlY, imEnd.x, imEnd.y);
           ctx.strokeStyle = imGrad;
-          ctx.lineWidth = 0.48;
+          ctx.lineWidth = 0.45;
           ctx.stroke();
 
           ctx.beginPath();
-          ctx.arc(imEnd.x, imEnd.y, 1.1, 0, Math.PI * 2);
+          ctx.arc(imEnd.x, imEnd.y, 1.05, 0, Math.PI * 2);
           ctx.fillStyle = currentTheme.tipDot;
           ctx.fill();
         }

@@ -1,0 +1,25 @@
+/* App-level atmospheric focus styling */
+.atmospheric-app-root {
+  min-height: 100vh;
+  position: relative;
+}
+
+/* Pulsing energy rings */
+@keyframes pulseRing {
+  0% {
+    transform: scale(0.96);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(0.96);
+    opacity: 0.6;
+  }
+}
+
+.pulse-ring {
+  animation: pulseRing 4s ease-in-out infinite;
+}

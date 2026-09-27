@@ -69,33 +69,6 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
       // Base radius scaled to window height/width
       const maxRadius = Math.min(width * 0.75, height * 0.92);
 
-      // 1. Semi-circular glowing core at bottom center (as seen in all video frames)
-      const coreRadius = maxRadius * 0.48;
-      const coreGrad = ctx.createRadialGradient(
-        originX, originY, 5,
-        originX, originY, coreRadius
-      );
-      coreGrad.addColorStop(0, currentTheme.coreInner);
-      coreGrad.addColorStop(0.4, currentTheme.coreGlow);
-      coreGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
-      ctx.fillStyle = coreGrad;
-      ctx.beginPath();
-      ctx.arc(originX, originY, coreRadius, Math.PI, 0, false);
-      ctx.fill();
-
-      // Secondary wider diffuse aura
-      const auraGrad = ctx.createRadialGradient(
-        originX, originY, 20,
-        originX, originY, maxRadius * 0.85
-      );
-      auraGrad.addColorStop(0, currentTheme.coreGlow.replace(/[\d.]+\)$/, '0.2)'));
-      auraGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = auraGrad;
-      ctx.beginPath();
-      ctx.arc(originX, originY, maxRadius * 0.85, Math.PI, 0, false);
-      ctx.fill();
-
       // Mouse position
       const mouse = mouseRef.current;
       const isMouseActive = mouse.active;
@@ -110,7 +83,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         mouseDist = Math.sqrt(dx * dx + dy * dy);
       }
 
-      // 2. Render all dandelion filaments
+      // Render all dandelion filaments
       const rays = raysRef.current;
       for (let i = 0; i < rays.length; i++) {
         const ray = rays[i];
@@ -119,7 +92,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         const breath = Math.sin(time * ray.waveSpeed + ray.waveOffset) * 6;
         let baseLen = ray.lengthVariance * maxRadius + breath;
 
-        // Interactive hover reaction (Frame 25: rays stretch upward towards cursor)
+        // Interactive hover reaction (rays stretch upward towards cursor)
         if (isMouseActive) {
           const angleDiff = Math.abs(ray.baseAngle - mouseAngle);
           // If ray aligns with cursor direction

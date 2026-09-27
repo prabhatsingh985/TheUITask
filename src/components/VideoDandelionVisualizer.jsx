@@ -22,7 +22,6 @@ function getPointOnBezier(u, p0x, p0y, p1x, p1y, p2x, p2y) {
 }
 
 // Deterministic pseudo-random number generator (Mulberry32)
-// Guarantees 100% identical layout, lengths, and dots across every page reload
 function createSeededRandom(seed = 985721) {
   let s = seed;
   return function() {
@@ -33,7 +32,8 @@ function createSeededRandom(seed = 985721) {
   };
 }
 
-function generateStaticRays() {
+// Option 3: Radar Sweep / Wave Pulse 360°
+function generateSweepRays() {
   const rand = createSeededRandom(985721);
   const list = [];
 
@@ -44,12 +44,11 @@ function generateStaticRays() {
     const angleJitter = (rand() - 0.5) * 0.015;
     const baseAngle = Math.PI - (0.08 + t * (Math.PI - 0.16)) + angleJitter;
 
-    // Canopy lengths from 0.50 to 1.0
     const lengthVariance = 0.50 + rand() * 0.50;
     const waveSpeed = 0.6 + rand() * 1.2;
     const waveOffset = rand() * Math.PI * 2;
     const dotSize = 1.1 + rand() * 2.1;
-    const stemFraction = 0.70 + rand() * 0.20; // stem extends gracefully down, fading to 0 opacity
+    const stemFraction = 0.70 + rand() * 0.20;
     const hasIntermediate = rand() > 0.65;
     const intermediatePos = 0.38 + rand() * 0.35;
 
@@ -66,20 +65,18 @@ function generateStaticRays() {
     });
   }
 
-  // 2. Mid-layer Filling Rays (160 rays)
+  // 2. Mid-layer Rays (160 rays)
   const MID_COUNT = 160;
   for (let i = 0; i < MID_COUNT; i++) {
     const t = i / (MID_COUNT - 1);
     const angleJitter = (rand() - 0.5) * 0.022;
     const baseAngle = Math.PI - (0.10 + t * (Math.PI - 0.20)) + angleJitter;
 
-    // Mid lengths from 0.26 to 0.54
     const lengthVariance = 0.26 + rand() * 0.28;
     const waveSpeed = 0.5 + rand() * 1.1;
     const waveOffset = rand() * Math.PI * 2;
     const dotSize = 0.9 + rand() * 1.4;
     const stemFraction = 0.72 + rand() * 0.20;
-    const hasIntermediate = false;
 
     list.push({
       baseAngle,
@@ -94,20 +91,18 @@ function generateStaticRays() {
     });
   }
 
-  // 3. Core Inner Rays filling the hollow empty space right above the replay button (140 rays)
+  // 3. Core Inner Rays filling the hollow empty space (140 rays)
   const CORE_COUNT = 140;
   for (let i = 0; i < CORE_COUNT; i++) {
     const t = i / (CORE_COUNT - 1);
     const angleJitter = (rand() - 0.5) * 0.028;
     const baseAngle = Math.PI - (0.12 + t * (Math.PI - 0.24)) + angleJitter;
 
-    // Core lengths directly occupying the hollow space (0.08 to 0.28)
     const lengthVariance = 0.08 + rand() * 0.20;
     const waveSpeed = 0.45 + rand() * 1.0;
     const waveOffset = rand() * Math.PI * 2;
     const dotSize = 0.75 + rand() * 1.1;
-    const stemFraction = 0.75 + rand() * 0.18; // delicate faded stem
-    const hasIntermediate = false;
+    const stemFraction = 0.75 + rand() * 0.18;
 
     list.push({
       baseAngle,
@@ -125,7 +120,7 @@ function generateStaticRays() {
   return list;
 }
 
-const STATIC_RAYS = generateStaticRays();
+const STATIC_RAYS = generateSweepRays();
 
 export default function VideoDandelionVisualizer({ currentTheme }) {
   const canvasRef = useRef(null);
@@ -133,7 +128,6 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
   const mouseRef = useRef({ x: -1000, y: -1000, active: false });
   const raysRef = useRef([]);
 
-  // Initialize with fixed deterministic structure so it never changes on reload
   useEffect(() => {
     raysRef.current = STATIC_RAYS.map(ray => ({
       ...ray,
@@ -165,51 +159,48 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, width, height);
 
-      // Anchored at bottom center
       const originX = width / 2;
       const originY = height + 10;
-
-      // Base radius scaled to window height/width
       const maxRadius = Math.min(width * 0.75, height * 0.92);
 
-      // Mouse position
       const mouse = mouseRef.current;
       const isMouseActive = mouse.active;
 
-      // Calculate mouse angle from bottom-center origin if inside canvas
       let mouseAngle = 0;
       let mouseDist = 0;
       if (isMouseActive) {
         const dx = mouse.x - originX;
         const dy = originY - mouse.y;
-        mouseAngle = Math.atan2(dy, dx); // 0 to PI
+        mouseAngle = Math.atan2(dy, dx);
         mouseDist = Math.sqrt(dx * dx + dy * dy);
       }
 
-      // Pre-compute gradient color stops for current theme to maximize 60fps performance
+      // Continuous 360° Radar Sweep Angle (revolving around center origin)
+      const sweepSpeed = 0.85; // radians per second
+      const currentSweepAngle = (time * sweepSpeed) % (Math.PI * 2);
+
       const rgb = extractRgb(currentTheme.rayLine);
+      const glowRgb = extractRgb(currentTheme.highlightGlow);
+
       const colorStop0 = `rgba(${rgb}, 0)`;
       const colorStop1 = `rgba(${rgb}, 0.06)`;
       const colorStop2 = `rgba(${rgb}, 0.20)`;
       const colorStop3 = `rgba(${rgb}, 0.48)`;
       const colorStop4 = `rgba(${rgb}, 0.82)`;
 
-      // Render all dandelion filaments
       const rays = raysRef.current;
       for (let i = 0; i < rays.length; i++) {
         const ray = rays[i];
 
-        // Gentle breathing animation
+        // Breathing motion
         const breath = Math.sin(time * ray.waveSpeed + ray.waveOffset) * 6;
         let baseLen = ray.lengthVariance * maxRadius + breath;
 
-        // Interactive hover reaction (rays stretch upward towards cursor)
+        // Interactive hover reaction
         if (isMouseActive) {
           const angleDiff = Math.abs(ray.baseAngle - mouseAngle);
-          // If ray aligns with cursor direction
           if (angleDiff < 0.28) {
             const influence = Math.pow(1 - angleDiff / 0.28, 2);
-            // Stretch ray towards cursor position
             const targetStretch = (mouseDist - baseLen) * 0.65 * influence;
             if (targetStretch > 0) {
               ray.targetLengthAdd = targetStretch;
@@ -223,25 +214,31 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           ray.targetLengthAdd = 0;
         }
 
-        // Smooth spring interpolation
         ray.currentLengthAdd += (ray.targetLengthAdd - ray.currentLengthAdd) * 0.12;
         const totalLen = baseLen + ray.currentLengthAdd;
 
-        // Slight organic sway
+        // Organic sway
         const sway = Math.sin(time * 0.8 + ray.waveOffset) * 0.012;
         const angle = ray.baseAngle + sway;
 
         const tipX = originX + Math.cos(angle) * totalLen;
         const tipY = originY - Math.sin(angle) * totalLen;
 
-        // Subtle curve control
         const midRatio = 0.52;
         const midX = originX + Math.cos(angle + sway * 0.5) * (totalLen * midRatio);
         const midY = originY - Math.sin(angle + sway * 0.5) * (totalLen * midRatio);
 
-        // Draw stem leading into tip dot:
-        // Tail starts with 0 opacity (clean origin, no harsh clutter at bottom),
-        // opacity gradually increases upwards, filling the space softly and connecting into the dot
+        // Calculate 360° Radar Sweep Intensity on this ray
+        // Difference between ray angle and current sweep angle
+        let dSweep = (currentSweepAngle - ray.baseAngle) % (Math.PI * 2);
+        if (dSweep < 0) dSweep += Math.PI * 2;
+
+        // Trail of phosphorescent glow behind the sweep head (arc of ~0.35 rad)
+        let sweepPulse = 0;
+        if (dSweep < 0.38) {
+          sweepPulse = Math.pow(1 - dSweep / 0.38, 2);
+        }
+
         const uStart = Math.max(0.04, 1.0 - ray.stemFraction);
         const pStart = getPointOnBezier(uStart, originX, originY, midX, midY, tipX, tipY);
         const pMid = getPointOnBezier((uStart + 1.0) / 2, originX, originY, midX, midY, tipX, tipY);
@@ -253,24 +250,41 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         grad.addColorStop(0, colorStop0);
         grad.addColorStop(0.2, colorStop1);
         grad.addColorStop(0.5, colorStop2);
-        grad.addColorStop(0.8, colorStop3);
-        grad.addColorStop(1, ray.tier === 'core' ? colorStop3 : colorStop4);
+        
+        if (sweepPulse > 0.05) {
+          // Luminous sweep glow on the line
+          const glowAlpha = Math.min(1.0, 0.48 + sweepPulse * 0.52);
+          grad.addColorStop(0.8, `rgba(${glowRgb}, ${glowAlpha})`);
+          grad.addColorStop(1, `rgba(${glowRgb}, 1.0)`);
+        } else {
+          grad.addColorStop(0.8, colorStop3);
+          grad.addColorStop(1, ray.tier === 'core' ? colorStop3 : colorStop4);
+        }
 
         ctx.beginPath();
         ctx.moveTo(pStart.x, pStart.y);
         ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
         ctx.strokeStyle = grad;
-        ctx.lineWidth = ray.tier === 'core' ? 0.42 : (ray.tier === 'mid' ? 0.48 : (ray.currentLengthAdd > 15 ? 0.75 : 0.55));
+        ctx.lineWidth = (ray.tier === 'core' ? 0.42 : (ray.tier === 'mid' ? 0.48 : (ray.currentLengthAdd > 15 ? 0.75 : 0.55))) + sweepPulse * 0.65;
         ctx.stroke();
 
-        // Draw Tip Dot Node
+        // Tip Dot Node with pulse
         ctx.beginPath();
-        const tipSize = ray.currentLengthAdd > 15 ? ray.dotSize * 1.35 : ray.dotSize;
-        ctx.arc(tipX, tipY, tipSize, 0, Math.PI * 2);
-        ctx.fillStyle = currentTheme.tipDot;
+        const baseTipSize = ray.currentLengthAdd > 15 ? ray.dotSize * 1.35 : ray.dotSize;
+        const pulseSize = baseTipSize * (1.0 + sweepPulse * 0.7);
+        ctx.arc(tipX, tipY, pulseSize, 0, Math.PI * 2);
+        ctx.fillStyle = sweepPulse > 0.1 ? currentTheme.highlightGlow : currentTheme.tipDot;
         ctx.fill();
 
-        // Draw Intermediate Dot with subtle fading stem leading into it
+        // Sweep Glow Aura around dot when illuminated
+        if (sweepPulse > 0.25) {
+          ctx.beginPath();
+          ctx.arc(tipX, tipY, pulseSize * 2.2, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${glowRgb}, ${0.18 * sweepPulse})`;
+          ctx.fill();
+        }
+
+        // Intermediate Dot
         if (ray.hasIntermediate) {
           const imPos = ray.intermediatePos;
           const imUStart = Math.max(0.04, imPos * (1.0 - ray.stemFraction));
@@ -295,8 +309,8 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           ctx.stroke();
 
           ctx.beginPath();
-          ctx.arc(imEnd.x, imEnd.y, 1.05, 0, Math.PI * 2);
-          ctx.fillStyle = currentTheme.tipDot;
+          ctx.arc(imEnd.x, imEnd.y, 1.05 * (1 + sweepPulse * 0.4), 0, Math.PI * 2);
+          ctx.fillStyle = sweepPulse > 0.2 ? currentTheme.highlightGlow : currentTheme.tipDot;
           ctx.fill();
         }
       }
@@ -315,15 +329,15 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
   const handleMouseMove = (e) => {
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    mouseRef.current = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-      active: true
-    };
+    const mouse = mouseRef.current;
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+    mouse.active = true;
   };
 
   const handleMouseLeave = () => {
-    mouseRef.current = { x: -1000, y: -1000, active: false };
+    const mouse = mouseRef.current;
+    mouse.active = false;
   };
 
   return (

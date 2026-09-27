@@ -4,7 +4,7 @@ import VideoDandelionVisualizer from './components/VideoDandelionVisualizer';
 import VideoSettingsDropdown from './components/VideoSettingsDropdown';
 
 export default function App() {
-  const [themeId, setThemeId] = useState('daytime');
+  const [themeId, setThemeId] = useState('night');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const currentTheme = VIDEO_THEMES.find(t => t.id === themeId) || VIDEO_THEMES[0];

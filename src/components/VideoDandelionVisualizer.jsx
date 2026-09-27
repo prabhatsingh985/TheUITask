@@ -47,14 +47,14 @@ function generateOrbitalRays() {
     const lengthVariance = 0.50 + rand() * 0.50;
     const waveSpeed = 0.6 + rand() * 1.2;
     const waveOffset = rand() * Math.PI * 2;
-    const dotSize = 1.1 + rand() * 2.1;
+    // 360° Orbital motion params (sweet spot: noticeable yet graceful flow)
+    const dotSize = 0.85 + rand() * 1.45;
     const stemFraction = 0.70 + rand() * 0.20;
     const hasIntermediate = rand() > 0.65;
     const intermediatePos = 0.38 + rand() * 0.35;
 
-    // 360° Orbital motion params
-    const orbitSpeed = (rand() > 0.5 ? 1 : -1) * (0.8 + rand() * 0.9);
-    const orbitRadius = 7 + rand() * 9;
+    const orbitSpeed = (rand() > 0.5 ? 1 : -1) * (0.42 + rand() * 0.30);
+    const orbitRadius = 6 + rand() * 7;
     const orbitPhase = rand() * Math.PI * 2;
 
     list.push({
@@ -81,13 +81,13 @@ function generateOrbitalRays() {
     const baseAngle = Math.PI - (0.10 + t * (Math.PI - 0.20)) + angleJitter;
 
     const lengthVariance = 0.26 + rand() * 0.28;
-    const waveSpeed = 0.5 + rand() * 1.1;
+    const waveSpeed = 0.5 + rand() * 0.9;
     const waveOffset = rand() * Math.PI * 2;
-    const dotSize = 0.9 + rand() * 1.4;
+    const dotSize = 0.72 + rand() * 0.95;
     const stemFraction = 0.72 + rand() * 0.20;
 
-    const orbitSpeed = (rand() > 0.5 ? 1 : -1) * (0.7 + rand() * 0.8);
-    const orbitRadius = 4 + rand() * 6;
+    const orbitSpeed = (rand() > 0.5 ? 1 : -1) * (0.36 + rand() * 0.26);
+    const orbitRadius = 4 + rand() * 5.5;
     const orbitPhase = rand() * Math.PI * 2;
 
     list.push({
@@ -114,12 +114,12 @@ function generateOrbitalRays() {
     const baseAngle = Math.PI - (0.12 + t * (Math.PI - 0.24)) + angleJitter;
 
     const lengthVariance = 0.08 + rand() * 0.20;
-    const waveSpeed = 0.45 + rand() * 1.0;
+    const waveSpeed = 0.4 + rand() * 0.8;
     const waveOffset = rand() * Math.PI * 2;
-    const dotSize = 0.75 + rand() * 1.1;
+    const dotSize = 0.60 + rand() * 0.70;
     const stemFraction = 0.75 + rand() * 0.18;
 
-    const orbitSpeed = (rand() > 0.5 ? 1 : -1) * (0.6 + rand() * 0.7);
+    const orbitSpeed = (rand() > 0.5 ? 1 : -1) * (0.30 + rand() * 0.22);
     const orbitRadius = 2.5 + rand() * 4;
     const orbitPhase = rand() * Math.PI * 2;
 
@@ -305,7 +305,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           ctx.stroke();
 
           ctx.beginPath();
-          ctx.arc(imEnd.x, imEnd.y, 1.05 * depthScale, 0, Math.PI * 2);
+          ctx.arc(imEnd.x, imEnd.y, 0.85 * depthScale, 0, Math.PI * 2);
           ctx.fillStyle = currentTheme.tipDot;
           ctx.fill();
         }

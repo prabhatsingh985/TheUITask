@@ -160,13 +160,8 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         ctx.moveTo(originX, originY);
         ctx.quadraticCurveTo(midX, midY, tipX, tipY);
 
-        if (ray.currentLengthAdd > 15) {
-          ctx.strokeStyle = currentTheme.highlightGlow || currentTheme.rayLine;
-          ctx.lineWidth = 0.95;
-        } else {
-          ctx.strokeStyle = currentTheme.rayLine;
-          ctx.lineWidth = 0.55;
-        }
+        ctx.strokeStyle = currentTheme.rayLine;
+        ctx.lineWidth = 0.55;
         ctx.stroke();
 
         // Draw Tip Dot Node

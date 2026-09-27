@@ -21,6 +21,7 @@ function getPointOnBezier(u, p0x, p0y, p1x, p1y, p2x, p2y) {
   };
 }
 
+
 // Deterministic pseudo-random number generator (Mulberry32)
 function createSeededRandom(seed = 985721) {
   let s = seed;
@@ -147,14 +148,15 @@ const STATIC_RAYS = generateOrbitalRays();
 export default function VideoDandelionVisualizer({ currentTheme }) {
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
-  const mouseRef = useRef({ x: -1000, y: -1000, active: false });
+  const mouseRef = useRef({ x: -1000, y: -1000, speed: 0, active: false, lastMoveTime: 0 });
   const raysRef = useRef([]);
 
   useEffect(() => {
     raysRef.current = STATIC_RAYS.map(ray => ({
       ...ray,
-      currentLengthAdd: 0,
-      targetLengthAdd: 0
+      orbitAngle: ray.orbitPhase,
+      angularVel: ray.orbitSpeed,
+      hoverInfluence: 0
     }));
   }, []);
 
@@ -188,21 +190,16 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
       const mouse = mouseRef.current;
       const isMouseActive = mouse.active;
 
-      let mouseAngle = 0;
-      let mouseDist = 0;
-      if (isMouseActive) {
-        const dx = mouse.x - originX;
-        const dy = originY - mouse.y;
-        mouseAngle = Math.atan2(dy, dx);
-        mouseDist = Math.sqrt(dx * dx + dy * dy);
+      // Check if mouse actively moved recently (within 40ms)
+      const now = performance.now();
+      if (now - mouse.lastMoveTime > 40) {
+        mouse.speed = 0;
       }
+      const isMouseMoving = isMouseActive && mouse.speed >= 1.0;
+      const currentMouseSpeed = isMouseMoving ? Math.min(120, mouse.speed) : 0;
 
       const rgb = extractRgb(currentTheme.rayLine);
       const colorStop0 = `rgba(${rgb}, 0)`;
-      const colorStop1 = `rgba(${rgb}, 0.06)`;
-      const colorStop2 = `rgba(${rgb}, 0.20)`;
-      const colorStop3 = `rgba(${rgb}, 0.48)`;
-      const colorStop4 = `rgba(${rgb}, 0.82)`;
 
       const rays = raysRef.current;
       for (let i = 0; i < rays.length; i++) {
@@ -210,45 +207,75 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
 
         // Breathing motion
         const breath = Math.sin(time * ray.waveSpeed + ray.waveOffset) * 5;
-        let baseLen = ray.lengthVariance * maxRadius + breath;
+        const baseLen = ray.lengthVariance * maxRadius + breath;
 
-        // Interactive hover reaction
+        const baseTipX = originX + Math.cos(ray.baseAngle) * baseLen;
+        const baseTipY = originY - Math.sin(ray.baseAngle) * baseLen;
+
+        // Calculate distance from cursor directly to the dots of this ray
+        // (Ensures only dots surrounding the cursor move; distant top dots remain completely still)
+        let targetInfluence = 0;
         if (isMouseActive) {
-          const angleDiff = Math.abs(ray.baseAngle - mouseAngle);
-          if (angleDiff < 0.28) {
-            const influence = Math.pow(1 - angleDiff / 0.28, 2);
-            const targetStretch = (mouseDist - baseLen) * 0.65 * influence;
-            if (targetStretch > 0) {
-              ray.targetLengthAdd = targetStretch;
-            } else {
-              ray.targetLengthAdd = influence * 35;
+          const distToTip = Math.hypot(mouse.x - baseTipX, mouse.y - baseTipY);
+          let minDistToDot = distToTip;
+
+          if (ray.hasIntermediate) {
+            const imX = originX + Math.cos(ray.baseAngle) * (baseLen * ray.intermediatePos);
+            const imY = originY - Math.sin(ray.baseAngle) * (baseLen * ray.intermediatePos);
+            const distToIm = Math.hypot(mouse.x - imX, mouse.y - imY);
+            if (distToIm < minDistToDot) {
+              minDistToDot = distToIm;
             }
-          } else {
-            ray.targetLengthAdd = 0;
           }
-        } else {
-          ray.targetLengthAdd = 0;
+
+          const HOVER_RADIUS = 95; // Slightly wider localized cluster around cursor
+          if (minDistToDot < HOVER_RADIUS) {
+            targetInfluence = Math.pow(1 - minDistToDot / HOVER_RADIUS, 1.25);
+          }
         }
 
-        ray.currentLengthAdd += (ray.targetLengthAdd - ray.currentLengthAdd) * 0.12;
-        const totalLen = baseLen + ray.currentLengthAdd;
+        // Smoothly adapt influence
+        ray.hoverInfluence += (targetInfluence - ray.hoverInfluence) * 0.24;
+        const inf = ray.hoverInfluence;
 
-        // Individual 360° circular wobble/orbit
-        const orbitAngle = time * ray.orbitSpeed + ray.orbitPhase;
-        const orbitDx = Math.cos(orbitAngle) * ray.orbitRadius;
-        const orbitDy = Math.sin(orbitAngle) * ray.orbitRadius * 0.45; // perspective tilt
-        const orbitDz = Math.sin(orbitAngle); // depth layer factor
+        // 360° Rotation Speed:
+        // ONLY rotates when mouse cursor is actively moving!
+        // When mouse cursor stops, rotation halts completely!
+        const dir = Math.sign(ray.orbitSpeed);
+        const speedBoost = isMouseMoving 
+          ? dir * (4.8 + currentMouseSpeed * 0.48) * inf 
+          : 0;
 
-        const baseTipX = originX + Math.cos(ray.baseAngle) * totalLen;
-        const baseTipY = originY - Math.sin(ray.baseAngle) * totalLen;
+        const targetVel = speedBoost;
+
+        if (!isMouseMoving || inf < 0.02) {
+          // Rapid deceleration to a complete stop when mouse stops
+          ray.angularVel *= 0.38;
+          if (Math.abs(ray.angularVel) < 0.04) ray.angularVel = 0;
+        } else {
+          ray.angularVel += (targetVel - ray.angularVel) * 0.36;
+        }
+
+        // Only advance angle when rotating
+        if (ray.angularVel !== 0) {
+          ray.orbitAngle += ray.angularVel * 0.018;
+        }
+
+        // Dynamic 360° orbital circle with larger, more prominent radius around mouse cursor
+        const hoverRadiusAdd = inf * (35 + Math.min(42, currentMouseSpeed * 0.50));
+        const currentOrbitRadius = ray.orbitRadius + hoverRadiusAdd;
+        const orbitDx = Math.cos(ray.orbitAngle) * currentOrbitRadius;
+        const orbitDy = Math.sin(ray.orbitAngle) * currentOrbitRadius * 0.65; // Fuller 3D circular form
+        const orbitDz = Math.sin(ray.orbitAngle); // depth layer factor
 
         const tipX = baseTipX + orbitDx;
         const tipY = baseTipY + orbitDy;
 
-        // Organic flexible curve towards moving dot
+        // Organic flexible curve towards moving dot (entire stem sways with the 360° circle)
         const midRatio = 0.52;
-        const midX = originX + Math.cos(ray.baseAngle) * (totalLen * midRatio) + orbitDx * 0.35;
-        const midY = originY - Math.sin(ray.baseAngle) * (totalLen * midRatio) + orbitDy * 0.35;
+        const stemOrbitFactor = 0.40 + inf * 0.28;
+        const midX = originX + Math.cos(ray.baseAngle) * (baseLen * midRatio) + orbitDx * stemOrbitFactor;
+        const midY = originY - Math.sin(ray.baseAngle) * (baseLen * midRatio) + orbitDy * stemOrbitFactor;
 
         // Stem starting point
         const uStart = Math.max(0.04, 1.0 - ray.stemFraction);
@@ -265,22 +292,23 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         if (lineVisibility > 0.01) {
           const grad = ctx.createLinearGradient(pStart.x, pStart.y, tipX, tipY);
           grad.addColorStop(0, colorStop0);
-          grad.addColorStop(0.2, `rgba(${rgb}, ${0.06 * lineVisibility})`);
-          grad.addColorStop(0.5, `rgba(${rgb}, ${0.20 * lineVisibility})`);
-          grad.addColorStop(0.8, `rgba(${rgb}, ${0.48 * lineVisibility})`);
-          grad.addColorStop(1, `rgba(${rgb}, ${(ray.tier === 'core' ? 0.48 : 0.82) * lineVisibility})`);
+          grad.addColorStop(0.2, `rgba(${rgb}, ${(0.06 + inf * 0.10) * lineVisibility})`);
+          grad.addColorStop(0.5, `rgba(${rgb}, ${(0.20 + inf * 0.18) * lineVisibility})`);
+          grad.addColorStop(0.8, `rgba(${rgb}, ${(0.48 + inf * 0.22) * lineVisibility})`);
+          grad.addColorStop(1, `rgba(${rgb}, ${(ray.tier === 'core' ? 0.48 : (0.82 + inf * 0.18)) * lineVisibility})`);
 
           ctx.beginPath();
           ctx.moveTo(pStart.x, pStart.y);
           ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
           ctx.strokeStyle = grad;
-          ctx.lineWidth = (ray.tier === 'core' ? 0.42 : (ray.tier === 'mid' ? 0.48 : (ray.currentLengthAdd > 15 ? 0.75 : 0.55))) * (0.6 + 0.4 * lineVisibility);
+          const baseWidth = (ray.tier === 'core' ? 0.42 : (ray.tier === 'mid' ? 0.48 : (inf > 0.15 ? 0.78 : 0.55)));
+          ctx.lineWidth = (baseWidth + inf * 0.25) * (0.6 + 0.4 * lineVisibility);
           ctx.stroke();
 
           // Tip Dot Node (only shown when rotating in front)
           ctx.beginPath();
           const depthScale = 1.0 + orbitDz * 0.18;
-          const tipSize = (ray.currentLengthAdd > 15 ? ray.dotSize * 1.35 : ray.dotSize) * depthScale;
+          const tipSize = ray.dotSize * (1.0 + inf * 0.50) * depthScale;
           ctx.arc(tipX, tipY, Math.max(0.6, tipSize), 0, Math.PI * 2);
           ctx.fillStyle = currentTheme.tipDot;
           ctx.globalAlpha = lineVisibility;
@@ -337,14 +365,28 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const mouse = mouseRef.current;
-    mouse.x = e.clientX - rect.left;
-    mouse.y = e.clientY - rect.top;
+    const newX = e.clientX - rect.left;
+    const newY = e.clientY - rect.top;
+
+    if (mouse.active) {
+      const dx = newX - mouse.x;
+      const dy = newY - mouse.y;
+      const instSpeed = Math.hypot(dx, dy);
+      mouse.speed = mouse.speed * 0.35 + instSpeed * 0.65;
+    } else {
+      mouse.speed = 0;
+    }
+
+    mouse.x = newX;
+    mouse.y = newY;
     mouse.active = true;
+    mouse.lastMoveTime = performance.now();
   };
 
   const handleMouseLeave = () => {
     const mouse = mouseRef.current;
     mouse.active = false;
+    mouse.speed = 0;
   };
 
   return (

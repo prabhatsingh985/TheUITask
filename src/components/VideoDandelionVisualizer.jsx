@@ -229,16 +229,16 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           const distToTip = Math.hypot(mouse.x - baseTipX, mouse.y - baseTipY);
           minDistToDot = distToTip;
 
-          // Localized hover radius: focused (~58px) near dense bottom core,
-          // expanding to spacious (~95px) for top outer canopy
-          const hoverRadius = 58 + factor * 37;
+          // Localized hover radius: focused (~68px) near dense bottom core,
+          // expanding to spacious (~112px) for top outer canopy
+          const hoverRadius = 68 + factor * 44;
           if (distToTip < hoverRadius) {
-            targetInfluence = Math.pow(1 - distToTip / hoverRadius, 1.25);
+            targetInfluence = Math.pow(1 - distToTip / hoverRadius, 1.15);
           }
         }
 
         // Smoothly adapt influence
-        ray.hoverInfluence += (targetInfluence - ray.hoverInfluence) * 0.24;
+        ray.hoverInfluence += (targetInfluence - ray.hoverInfluence) * 0.26;
         const inf = ray.hoverInfluence;
 
         // 360° Rotation Speed:
@@ -246,7 +246,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         // When mouse cursor stops, rotation halts completely!
         const dir = Math.sign(ray.orbitSpeed);
         const speedBoost = isMouseMoving 
-          ? dir * (4.8 + currentMouseSpeed * 0.48) * inf 
+          ? dir * (5.8 + currentMouseSpeed * 0.58) * inf 
           : 0;
 
         const targetVel = speedBoost;
@@ -265,7 +265,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         }
 
         // 1. Repulsion away from cursor ("points with lines cursor se dur bhagni chahiye"):
-        // Bottom lines get gentle, subtle push (~10-14px), top lines get full dynamic push (~85-100px)
+        // Bottom lines get gentle push (~14-18px), top lines get full dynamic push (~110-128px)
         let targetRepelX = 0;
         let targetRepelY = 0;
         if (isMouseActive && minDistToDot < 9999 && inf > 0.005) {
@@ -275,8 +275,8 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           const nx = dx / d;
           const ny = dy / d;
 
-          const repelScale = 0.14 + factor * 1.36; // ~0.15 for bottom rays, ~1.50 for top rays
-          const maxRepel = (36 + Math.min(32, currentMouseSpeed * 0.40)) * repelScale;
+          const repelScale = 0.16 + factor * 1.44; // ~0.20 for bottom rays, ~1.60 for top rays
+          const maxRepel = (42 + Math.min(38, currentMouseSpeed * 0.45)) * repelScale;
           targetRepelX = nx * (inf * maxRepel);
           targetRepelY = ny * (inf * maxRepel);
         }
@@ -286,9 +286,9 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         ray.currentRepelY += (targetRepelY - ray.currentRepelY) * 0.25;
 
         // 2. Dynamic 360° orbital circle ("especially upar points with more radius of rotating"):
-        // Bottom lines stay small and neat (~10-16px orbit), top canopy lines rotate in wide ~115-125px circles
-        const radiusScale = 0.12 + factor * 1.48; // ~0.14 for bottom rays, ~1.60 for top rays
-        const hoverRadiusAdd = inf * (35 + Math.min(42, currentMouseSpeed * 0.50)) * radiusScale;
+        // Bottom lines stay small and neat (~14-19px orbit), top canopy lines rotate in wide ~135-150px circles
+        const radiusScale = 0.14 + factor * 1.56; // ~0.18 for bottom rays, ~1.70 for top rays
+        const hoverRadiusAdd = inf * (42 + Math.min(48, currentMouseSpeed * 0.55)) * radiusScale;
         const currentOrbitRadius = (ray.orbitRadius * radiusScale) + hoverRadiusAdd;
         const orbitDx = Math.cos(ray.orbitAngle) * currentOrbitRadius;
         const orbitDy = Math.sin(ray.orbitAngle) * currentOrbitRadius * 0.65; // Fuller 3D circular form

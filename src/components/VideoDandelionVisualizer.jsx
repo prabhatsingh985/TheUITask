@@ -148,7 +148,7 @@ const STATIC_RAYS = generateOrbitalRays();
 export default function VideoDandelionVisualizer({ currentTheme }) {
   const canvasRef = useRef(null);
   const animFrameRef = useRef(null);
-  const mouseRef = useRef({ x: -1000, y: -1000, speed: 0, active: false, lastMoveTime: 0 });
+  const mouseRef = useRef({ x: -1000, y: -1000, vx: 0, vy: 0, speed: 0, active: false, lastMoveTime: 0 });
   const raysRef = useRef([]);
 
   useEffect(() => {
@@ -158,7 +158,10 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
       angularVel: ray.orbitSpeed,
       hoverInfluence: 0,
       currentRepelX: 0,
-      currentRepelY: 0
+      currentRepelY: 0,
+      currentFlowX: 0,
+      currentFlowY: 0,
+      currentExtendLen: 0
     }));
   }, []);
 
@@ -196,9 +199,18 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
       const now = performance.now();
       if (now - mouse.lastMoveTime > 40) {
         mouse.speed = 0;
+        mouse.vx *= 0.50;
+        mouse.vy *= 0.50;
+        if (Math.abs(mouse.vx) < 0.1) mouse.vx = 0;
+        if (Math.abs(mouse.vy) < 0.1) mouse.vy = 0;
       }
       const isMouseMoving = isMouseActive && mouse.speed >= 1.0;
       const currentMouseSpeed = isMouseMoving ? Math.min(120, mouse.speed) : 0;
+
+      // Direction of cursor movement vector (e.g. vy < 0 when moving upward)
+      const mouseVelMag = Math.hypot(mouse.vx, mouse.vy);
+      const mouseDirX = mouseVelMag > 0.5 ? mouse.vx / mouseVelMag : 0;
+      const mouseDirY = mouseVelMag > 0.5 ? mouse.vy / mouseVelMag : 0;
 
       const rgb = extractRgb(currentTheme.rayLine);
       const colorStop0 = `rgba(${rgb}, 0)`;
@@ -210,9 +222,10 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         // Breathing motion
         const breath = Math.sin(time * ray.waveSpeed + ray.waveOffset) * 5;
         const baseLen = ray.lengthVariance * maxRadius + breath;
+        const effectiveBaseLen = baseLen + ray.currentExtendLen;
 
-        const baseTipX = originX + Math.cos(ray.baseAngle) * baseLen;
-        const baseTipY = originY - Math.sin(ray.baseAngle) * baseLen;
+        const baseTipX = originX + Math.cos(ray.baseAngle) * effectiveBaseLen;
+        const baseTipY = originY - Math.sin(ray.baseAngle) * effectiveBaseLen;
 
         // Calculate distance from cursor directly to this ray's tip dot
         // (Ensures only dots surrounding the cursor move; distant dots remain completely still)
@@ -264,7 +277,36 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           ray.orbitAngle += ray.angularVel * 0.018;
         }
 
-        // 1. Repulsion away from cursor ("points with lines cursor se dur bhagni chahiye"):
+        // Ray unit direction vector (pointing outward from origin)
+        const rayDirX = Math.cos(ray.baseAngle);
+        const rayDirY = -Math.sin(ray.baseAngle);
+        const dotAlignment = mouseDirX * rayDirX + mouseDirY * rayDirY;
+
+        // 1. Directional Extension & Flow in cursor movement direction:
+        // E.g., when cursor moves bottom to top (mouseDirY < 0), close lines/points move upward and extend outward!
+        let targetFlowX = 0;
+        let targetFlowY = 0;
+        let targetExtendLen = 0;
+
+        if (isMouseMoving && inf > 0.005) {
+          // Directional drag/flow displacement
+          const flowScale = 0.20 + factor * 1.25;
+          const maxFlowDist = (16 + Math.min(26, currentMouseSpeed * 0.35)) * flowScale;
+          targetFlowX = mouseDirX * (inf * maxFlowDist);
+          targetFlowY = mouseDirY * (inf * maxFlowDist);
+
+          // Radial length extension along ray direction
+          const extendScale = 0.15 + factor * 1.35;
+          const extendAmount = (14 + Math.min(24, currentMouseSpeed * 0.32)) * extendScale;
+          targetExtendLen = Math.max(0, dotAlignment) * (inf * extendAmount);
+        }
+
+        // Smooth spring physics for directional flow and radial length extension
+        ray.currentFlowX += (targetFlowX - ray.currentFlowX) * 0.22;
+        ray.currentFlowY += (targetFlowY - ray.currentFlowY) * 0.22;
+        ray.currentExtendLen += (targetExtendLen - ray.currentExtendLen) * 0.22;
+
+        // 2. Repulsion away from cursor ("points with lines cursor se dur bhagni chahiye"):
         // Bottom lines get gentle push (~14-18px), top lines get full dynamic push (~110-128px)
         let targetRepelX = 0;
         let targetRepelY = 0;
@@ -285,25 +327,33 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         ray.currentRepelX += (targetRepelX - ray.currentRepelX) * 0.25;
         ray.currentRepelY += (targetRepelY - ray.currentRepelY) * 0.25;
 
-        // 2. Dynamic 360° orbital circle ("especially upar points with more radius of rotating"):
-        // Bottom lines stay small and neat (~14-19px orbit), top canopy lines rotate in wide ~135-150px circles
+        // 3. Dynamic 360° orbital circle with directional expansion ("and also increase their radius accordingly"):
+        // Radius increases with motion speed and directional alignment
+        const motionRadiusBoost = isMouseMoving ? (1.0 + Math.max(0, dotAlignment) * 0.35) : 1.0;
         const radiusScale = 0.14 + factor * 1.56; // ~0.18 for bottom rays, ~1.70 for top rays
-        const hoverRadiusAdd = inf * (42 + Math.min(48, currentMouseSpeed * 0.55)) * radiusScale;
+        const hoverRadiusAdd = inf * (42 + Math.min(48, currentMouseSpeed * 0.55)) * radiusScale * motionRadiusBoost;
         const currentOrbitRadius = (ray.orbitRadius * radiusScale) + hoverRadiusAdd;
         const orbitDx = Math.cos(ray.orbitAngle) * currentOrbitRadius;
         const orbitDy = Math.sin(ray.orbitAngle) * currentOrbitRadius * 0.65; // Fuller 3D circular form
         const orbitDz = Math.sin(ray.orbitAngle); // depth layer factor
 
-        // Combined position: Base + 360° rotation + Pushing away from cursor
-        const tipX = baseTipX + orbitDx + ray.currentRepelX;
-        const tipY = baseTipY + orbitDy + ray.currentRepelY;
+        // Combined position: Base + 360° rotation + Repulsion + Directional flow
+        const tipX = baseTipX + orbitDx + ray.currentRepelX + ray.currentFlowX;
+        const tipY = baseTipY + orbitDy + ray.currentRepelY + ray.currentFlowY;
 
-        // Organic flexible curve towards moving dot (entire stem sways with 360° circle and bends away from cursor)
+        // Organic flexible curve towards moving dot (entire stem sways with 360° circle, bends away, and flows with movement)
         const midRatio = 0.52;
         const stemOrbitFactor = (0.22 + factor * 0.20) + inf * 0.20;
         const stemRepelFactor = 0.25 + factor * 0.30;
-        const midX = originX + Math.cos(ray.baseAngle) * (baseLen * midRatio) + orbitDx * stemOrbitFactor + ray.currentRepelX * stemRepelFactor;
-        const midY = originY - Math.sin(ray.baseAngle) * (baseLen * midRatio) + orbitDy * stemOrbitFactor + ray.currentRepelY * stemRepelFactor;
+        const stemFlowFactor = 0.40 + factor * 0.25;
+        const midX = originX + Math.cos(ray.baseAngle) * (effectiveBaseLen * midRatio) 
+          + orbitDx * stemOrbitFactor 
+          + ray.currentRepelX * stemRepelFactor 
+          + ray.currentFlowX * stemFlowFactor;
+        const midY = originY - Math.sin(ray.baseAngle) * (effectiveBaseLen * midRatio) 
+          + orbitDy * stemOrbitFactor 
+          + ray.currentRepelY * stemRepelFactor 
+          + ray.currentFlowY * stemFlowFactor;
 
         // Stem starting point
         const uStart = Math.max(0.04, 1.0 - ray.stemFraction);
@@ -403,8 +453,12 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
       const dy = newY - mouse.y;
       const instSpeed = Math.hypot(dx, dy);
       mouse.speed = mouse.speed * 0.35 + instSpeed * 0.65;
+      mouse.vx = mouse.vx * 0.35 + dx * 0.65;
+      mouse.vy = mouse.vy * 0.35 + dy * 0.65;
     } else {
       mouse.speed = 0;
+      mouse.vx = 0;
+      mouse.vy = 0;
     }
 
     mouse.x = newX;
@@ -417,6 +471,8 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
     const mouse = mouseRef.current;
     mouse.active = false;
     mouse.speed = 0;
+    mouse.vx = 0;
+    mouse.vy = 0;
   };
 
   return (

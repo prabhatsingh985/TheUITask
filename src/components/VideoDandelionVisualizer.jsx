@@ -255,27 +255,27 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         const inf = ray.hoverInfluence;
 
         // 360° Rotation Speed:
-        // ONLY rotates when mouse cursor is actively moving!
-        // When mouse cursor stops, rotation halts completely!
+        // Normal state (without hover): Gentle, continuous 360° orbital rotation for all lines
+        // On Hover with mouse movement: High-speed dynamic 360° rotation
         const dir = Math.sign(ray.orbitSpeed);
-        const speedBoost = isMouseMoving 
+        const baseIdleSpeed = ray.orbitSpeed; // Natural calm 360° rotation in normal state
+
+        // Fast dynamic speed boost only when mouse is actively moving over the lines
+        const speedBoost = (isMouseMoving && inf > 0.01)
           ? dir * (5.8 + currentMouseSpeed * 0.58) * inf 
           : 0;
 
-        const targetVel = speedBoost;
+        const targetVel = baseIdleSpeed + speedBoost;
 
-        if (!isMouseMoving || inf < 0.02) {
-          // Rapid deceleration to a complete stop when mouse stops
-          ray.angularVel *= 0.38;
-          if (Math.abs(ray.angularVel) < 0.04) ray.angularVel = 0;
+        if (inf > 0.02 && !isMouseMoving) {
+          // When mouse stops over hovered lines, smoothly decelerate back to calm idle speed
+          ray.angularVel += (baseIdleSpeed - ray.angularVel) * 0.28;
         } else {
-          ray.angularVel += (targetVel - ray.angularVel) * 0.36;
+          ray.angularVel += (targetVel - ray.angularVel) * 0.32;
         }
 
-        // Only advance angle when rotating
-        if (ray.angularVel !== 0) {
-          ray.orbitAngle += ray.angularVel * 0.018;
-        }
+        // Continuous 360° rotation: Advances every frame
+        ray.orbitAngle += ray.angularVel * 0.018;
 
         // Ray unit direction vector (pointing outward from origin)
         const rayDirX = Math.cos(ray.baseAngle);

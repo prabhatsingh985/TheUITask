@@ -37,8 +37,8 @@ function generateOrbitalRays() {
   const rand = createSeededRandom(985721);
   const list = [];
 
-  // 1. Outer Canopy Rays (340 rays)
-  const CANOPY_COUNT = 340;
+  // 1. Outer Canopy Rays (260 rays)
+  const CANOPY_COUNT = 260;
   for (let i = 0; i < CANOPY_COUNT; i++) {
     const t = i / (CANOPY_COUNT - 1);
     const angleJitter = (rand() - 0.5) * 0.015;
@@ -50,7 +50,7 @@ function generateOrbitalRays() {
     // 360° Orbital motion params (sweet spot: noticeable yet graceful flow)
     const dotSize = 0.85 + rand() * 1.45;
     const stemFraction = 0.70 + rand() * 0.20;
-    const hasIntermediate = rand() > 0.65;
+    const hasIntermediate = rand() > 0.75;
     const intermediatePos = 0.38 + rand() * 0.35;
 
     const orbitSpeed = (rand() > 0.5 ? 1 : -1) * (0.42 + rand() * 0.30);
@@ -73,8 +73,8 @@ function generateOrbitalRays() {
     });
   }
 
-  // 2. Mid-layer Rays (160 rays)
-  const MID_COUNT = 160;
+  // 2. Mid-layer Rays (120 rays)
+  const MID_COUNT = 120;
   for (let i = 0; i < MID_COUNT; i++) {
     const t = i / (MID_COUNT - 1);
     const angleJitter = (rand() - 0.5) * 0.022;
@@ -106,8 +106,8 @@ function generateOrbitalRays() {
     });
   }
 
-  // 3. Core Inner Rays filling the hollow empty space (140 rays)
-  const CORE_COUNT = 140;
+  // 3. Core Inner Rays filling the hollow empty space (100 rays)
+  const CORE_COUNT = 100;
   for (let i = 0; i < CORE_COUNT; i++) {
     const t = i / (CORE_COUNT - 1);
     const angleJitter = (rand() - 0.5) * 0.028;
@@ -258,30 +258,38 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         const ctrlX = 2 * pMid.x - 0.5 * (pStart.x + tipX);
         const ctrlY = 2 * pMid.y - 0.5 * (pStart.y + tipY);
 
-        const grad = ctx.createLinearGradient(pStart.x, pStart.y, tipX, tipY);
-        grad.addColorStop(0, colorStop0);
-        grad.addColorStop(0.2, colorStop1);
-        grad.addColorStop(0.5, colorStop2);
-        grad.addColorStop(0.8, colorStop3);
-        grad.addColorStop(1, ray.tier === 'core' ? colorStop3 : colorStop4);
+        // 3D Front/Back visibility:
+        // Visible for ~75-80% of the orbit, dipping away smoothly only at the deep rear apex
+        const lineVisibility = Math.max(0, Math.min(1.0, (orbitDz + 0.45) / 0.50));
 
-        ctx.beginPath();
-        ctx.moveTo(pStart.x, pStart.y);
-        ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
-        ctx.strokeStyle = grad;
-        ctx.lineWidth = ray.tier === 'core' ? 0.42 : (ray.tier === 'mid' ? 0.48 : (ray.currentLengthAdd > 15 ? 0.75 : 0.55));
-        ctx.stroke();
+        if (lineVisibility > 0.01) {
+          const grad = ctx.createLinearGradient(pStart.x, pStart.y, tipX, tipY);
+          grad.addColorStop(0, colorStop0);
+          grad.addColorStop(0.2, `rgba(${rgb}, ${0.06 * lineVisibility})`);
+          grad.addColorStop(0.5, `rgba(${rgb}, ${0.20 * lineVisibility})`);
+          grad.addColorStop(0.8, `rgba(${rgb}, ${0.48 * lineVisibility})`);
+          grad.addColorStop(1, `rgba(${rgb}, ${(ray.tier === 'core' ? 0.48 : 0.82) * lineVisibility})`);
 
-        // Tip Dot Node (pulses slightly as it revolves forward/backward in 3D orbit)
-        ctx.beginPath();
-        const depthScale = 1.0 + orbitDz * 0.18;
-        const tipSize = (ray.currentLengthAdd > 15 ? ray.dotSize * 1.35 : ray.dotSize) * depthScale;
-        ctx.arc(tipX, tipY, Math.max(0.6, tipSize), 0, Math.PI * 2);
-        ctx.fillStyle = currentTheme.tipDot;
-        ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(pStart.x, pStart.y);
+          ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = (ray.tier === 'core' ? 0.42 : (ray.tier === 'mid' ? 0.48 : (ray.currentLengthAdd > 15 ? 0.75 : 0.55))) * (0.6 + 0.4 * lineVisibility);
+          ctx.stroke();
 
-        // Intermediate Dot with its own subtle orbital swing
-        if (ray.hasIntermediate) {
+          // Tip Dot Node (only shown when rotating in front)
+          ctx.beginPath();
+          const depthScale = 1.0 + orbitDz * 0.18;
+          const tipSize = (ray.currentLengthAdd > 15 ? ray.dotSize * 1.35 : ray.dotSize) * depthScale;
+          ctx.arc(tipX, tipY, Math.max(0.6, tipSize), 0, Math.PI * 2);
+          ctx.fillStyle = currentTheme.tipDot;
+          ctx.globalAlpha = lineVisibility;
+          ctx.fill();
+          ctx.globalAlpha = 1.0;
+        }
+
+        // Intermediate Dot with its own subtle orbital swing (only shown when rotating in front)
+        if (ray.hasIntermediate && lineVisibility > 0.01) {
           const imPos = ray.intermediatePos;
           const imUStart = Math.max(0.04, imPos * (1.0 - ray.stemFraction));
           const imStart = getPointOnBezier(imUStart, originX, originY, midX, midY, tipX, tipY);
@@ -293,9 +301,9 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
 
           const imGrad = ctx.createLinearGradient(imStart.x, imStart.y, imEnd.x, imEnd.y);
           imGrad.addColorStop(0, colorStop0);
-          imGrad.addColorStop(0.3, colorStop1);
-          imGrad.addColorStop(0.7, colorStop2);
-          imGrad.addColorStop(1, colorStop3);
+          imGrad.addColorStop(0.3, `rgba(${rgb}, ${0.08 * lineVisibility})`);
+          imGrad.addColorStop(0.7, `rgba(${rgb}, ${0.22 * lineVisibility})`);
+          imGrad.addColorStop(1, `rgba(${rgb}, ${0.48 * lineVisibility})`);
 
           ctx.beginPath();
           ctx.moveTo(imStart.x, imStart.y);
@@ -305,9 +313,12 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           ctx.stroke();
 
           ctx.beginPath();
+          const depthScale = 1.0 + orbitDz * 0.18;
           ctx.arc(imEnd.x, imEnd.y, 0.85 * depthScale, 0, Math.PI * 2);
           ctx.fillStyle = currentTheme.tipDot;
+          ctx.globalAlpha = lineVisibility;
           ctx.fill();
+          ctx.globalAlpha = 1.0;
         }
       }
 

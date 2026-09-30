@@ -1,26 +1,74 @@
 import React, { useRef, useEffect } from 'react';
+import * as THREE from 'three';
 
-function extractRgb(colorStr) {
-  if (!colorStr) return '37, 99, 235';
+function parseRgb(colorStr, fallback = [37, 99, 235]) {
+  if (!colorStr) return fallback;
   const match = colorStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-  if (match) return `${match[1]}, ${match[2]}, ${match[3]}`;
+  if (match) {
+    return [parseInt(match[1], 10), parseInt(match[2], 10), parseInt(match[3], 10)];
+  }
   if (colorStr.startsWith('#')) {
     const hex = colorStr.slice(1);
     if (hex.length === 6) {
-      return `${parseInt(hex.slice(0, 2), 16)}, ${parseInt(hex.slice(2, 4), 16)}, ${parseInt(hex.slice(4, 6), 16)}`;
+      return [
+        parseInt(hex.slice(0, 2), 16),
+        parseInt(hex.slice(2, 4), 16),
+        parseInt(hex.slice(4, 6), 16)
+      ];
     }
   }
-  return '37, 99, 235';
+  return fallback;
 }
 
-function getPointOnBezier(u, p0x, p0y, p1x, p1y, p2x, p2y) {
+function parseThreeColor(colorStr, fallback = 0x3b82f6) {
+  const [r, g, b] = parseRgb(colorStr);
+  return new THREE.Color(r / 255, g / 255, b / 255);
+}
+
+function createDotTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+  grad.addColorStop(0.25, 'rgba(255, 255, 255, 0.95)');
+  grad.addColorStop(0.55, 'rgba(255, 255, 255, 0.5)');
+  grad.addColorStop(0.85, 'rgba(255, 255, 255, 0.1)');
+  grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function createGlowTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+  grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.45)');
+  grad.addColorStop(0.65, 'rgba(255, 255, 255, 0.15)');
+  grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// 3D Quadratic Bezier evaluation
+function get3DBezierPoint(u, p0, p1, p2) {
   const inv = 1 - u;
   return {
-    x: inv * inv * p0x + 2 * inv * u * p1x + u * u * p2x,
-    y: inv * inv * p0y + 2 * inv * u * p1y + u * u * p2y
+    x: inv * inv * p0.x + 2 * inv * u * p1.x + u * u * p2.x,
+    y: inv * inv * p0.y + 2 * inv * u * p1.y + u * u * p2.y,
+    z: inv * inv * p0.z + 2 * inv * u * p1.z + u * u * p2.z
   };
 }
-
 
 // Deterministic pseudo-random number generator (Mulberry32)
 function createSeededRandom(seed = 985721) {
@@ -33,7 +81,7 @@ function createSeededRandom(seed = 985721) {
   };
 }
 
-// Option 2: 3D Wobble / Orbital Precession (Individual 360° circular breeze dance)
+// Option 2: 3D Wobble / Orbital Precession Rays
 function generateOrbitalRays() {
   const rand = createSeededRandom(985721);
   const list = [];
@@ -43,12 +91,11 @@ function generateOrbitalRays() {
   for (let i = 0; i < CANOPY_COUNT; i++) {
     const t = i / (CANOPY_COUNT - 1);
     const angleJitter = (rand() - 0.5) * 0.015;
-    const baseAngle = Math.PI - (0.08 + t * (Math.PI - 0.16)) + angleJitter;
+    const baseAngle = 0.08 + t * (Math.PI - 0.16) + angleJitter;
 
     const lengthVariance = 0.50 + rand() * 0.50;
     const waveSpeed = 0.6 + rand() * 1.2;
     const waveOffset = rand() * Math.PI * 2;
-    // 360° Orbital motion params (sweet spot: noticeable yet graceful flow)
     const dotSize = 0.85 + rand() * 1.45;
     const stemFraction = 0.70 + rand() * 0.20;
     const hasIntermediate = rand() > 0.75;
@@ -79,7 +126,7 @@ function generateOrbitalRays() {
   for (let i = 0; i < MID_COUNT; i++) {
     const t = i / (MID_COUNT - 1);
     const angleJitter = (rand() - 0.5) * 0.022;
-    const baseAngle = Math.PI - (0.10 + t * (Math.PI - 0.20)) + angleJitter;
+    const baseAngle = 0.10 + t * (Math.PI - 0.20) + angleJitter;
 
     const lengthVariance = 0.26 + rand() * 0.28;
     const waveSpeed = 0.5 + rand() * 0.9;
@@ -107,12 +154,12 @@ function generateOrbitalRays() {
     });
   }
 
-  // 3. Core Inner Rays filling the hollow empty space (100 rays)
+  // 3. Core Inner Rays (100 rays)
   const CORE_COUNT = 100;
   for (let i = 0; i < CORE_COUNT; i++) {
     const t = i / (CORE_COUNT - 1);
     const angleJitter = (rand() - 0.5) * 0.028;
-    const baseAngle = Math.PI - (0.12 + t * (Math.PI - 0.24)) + angleJitter;
+    const baseAngle = 0.12 + t * (Math.PI - 0.24) + angleJitter;
 
     const lengthVariance = 0.08 + rand() * 0.20;
     const waveSpeed = 0.4 + rand() * 0.8;
@@ -144,15 +191,50 @@ function generateOrbitalRays() {
 }
 
 const STATIC_RAYS = generateOrbitalRays();
+const SEGMENTS_PER_STEM = 14;
 
 export default function VideoDandelionVisualizer({ currentTheme }) {
-  const canvasRef = useRef(null);
-  const animFrameRef = useRef(null);
+  const containerRef = useRef(null);
   const mouseRef = useRef({ x: -1000, y: -1000, vx: 0, vy: 0, speed: 0, active: false, lastMoveTime: 0 });
-  const raysRef = useRef([]);
+  const themeRef = useRef(currentTheme);
 
   useEffect(() => {
-    raysRef.current = STATIC_RAYS.map(ray => ({
+    themeRef.current = currentTheme;
+  }, [currentTheme]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let width = container.clientWidth || window.innerWidth;
+    let height = container.clientHeight || window.innerHeight;
+
+    // 1. Three.js Scene, Camera, Renderer
+    const scene = new THREE.Scene();
+    const fov = 50;
+    const camera = new THREE.PerspectiveCamera(fov, width / height, 1, 3000);
+
+    const updateCameraDistance = (w, h) => {
+      const dist = (h / 2) / Math.tan((fov * Math.PI / 180) / 2);
+      camera.position.set(0, 0, dist);
+      camera.aspect = w / h;
+      camera.lookAt(0, 0, 0);
+      camera.updateProjectionMatrix();
+    };
+    updateCameraDistance(width, height);
+
+    const renderer = new THREE.WebGLRenderer({
+      alpha: true,
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(width, height);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    container.appendChild(renderer.domElement);
+
+    // 2. Rays Runtime State
+    const rays = STATIC_RAYS.map(ray => ({
       ...ray,
       orbitAngle: ray.orbitPhase,
       angularVel: ray.orbitSpeed,
@@ -163,39 +245,146 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
       currentFlowY: 0,
       currentExtendLen: 0
     }));
-  }, []);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    // Count dots: every ray has 1 tip dot, outer rays with hasIntermediate have 1 extra
+    const intermediateRays = rays.filter(r => r.hasIntermediate);
+    const totalDotsCount = rays.length + intermediateRays.length;
 
+    // 3. Stems (LineSegments) Setup
+    // Each stem has SEGMENTS_PER_STEM lines -> SEGMENTS_PER_STEM * 2 vertices
+    const totalStemVertices = rays.length * SEGMENTS_PER_STEM * 2;
+    const stemPositions = new Float32Array(totalStemVertices * 3);
+    const stemAlphas = new Float32Array(totalStemVertices);
+    const stemColors = new Float32Array(totalStemVertices * 3);
+
+    const stemGeometry = new THREE.BufferGeometry();
+    const stemPosAttr = new THREE.BufferAttribute(stemPositions, 3);
+    const stemAlphaAttr = new THREE.BufferAttribute(stemAlphas, 1);
+    const stemColorAttr = new THREE.BufferAttribute(stemColors, 3);
+
+    stemGeometry.setAttribute('position', stemPosAttr);
+    stemGeometry.setAttribute('vAlpha', stemAlphaAttr);
+    stemGeometry.setAttribute('vColor', stemColorAttr);
+
+    const stemMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uGlobalAlpha: { value: 1.0 }
+      },
+      vertexShader: `
+        attribute float vAlpha;
+        attribute vec3 vColor;
+        varying float fAlpha;
+        varying vec3 fColor;
+        void main() {
+          fAlpha = vAlpha;
+          fColor = vColor;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying float fAlpha;
+        varying vec3 fColor;
+        uniform float uGlobalAlpha;
+        void main() {
+          gl_FragColor = vec4(fColor, fAlpha * uGlobalAlpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending
+    });
+
+    const stemLines = new THREE.LineSegments(stemGeometry, stemMaterial);
+    scene.add(stemLines);
+
+    // 4. Tip and Intermediate Dots (Points) Setup
+    const dotPositions = new Float32Array(totalDotsCount * 3);
+    const dotColors = new Float32Array(totalDotsCount * 3);
+    const dotSizes = new Float32Array(totalDotsCount);
+    const dotAlphas = new Float32Array(totalDotsCount);
+
+    const dotGeometry = new THREE.BufferGeometry();
+    const dotPosAttr = new THREE.BufferAttribute(dotPositions, 3);
+    const dotColorAttr = new THREE.BufferAttribute(dotColors, 3);
+    const dotSizeAttr = new THREE.BufferAttribute(dotSizes, 1);
+    const dotAlphaAttr = new THREE.BufferAttribute(dotAlphas, 1);
+
+    dotGeometry.setAttribute('position', dotPosAttr);
+    dotGeometry.setAttribute('color', dotColorAttr);
+    dotGeometry.setAttribute('size', dotSizeAttr);
+    dotGeometry.setAttribute('alpha', dotAlphaAttr);
+
+    const dotTexture = createDotTexture();
+    const dotMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uTexture: { value: dotTexture },
+        uGlobalAlpha: { value: 1.0 }
+      },
+      vertexShader: `
+        attribute float size;
+        attribute vec3 color;
+        attribute float alpha;
+        varying vec3 vColor;
+        varying float vAlpha;
+        void main() {
+          vColor = color;
+          vAlpha = alpha;
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          // Perspective size attenuation
+          gl_PointSize = size * (460.0 / -mvPosition.z);
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D uTexture;
+        uniform float uGlobalAlpha;
+        varying vec3 vColor;
+        varying float vAlpha;
+        void main() {
+          vec4 texColor = texture2D(uTexture, gl_PointCoord);
+          gl_FragColor = vec4(vColor, texColor.a * vAlpha * uGlobalAlpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending
+    });
+
+    const dotPoints = new THREE.Points(dotGeometry, dotMaterial);
+    scene.add(dotPoints);
+
+    // 5. Core Base Atmosphere Glow
+    const glowTexture = createGlowTexture();
+    const glowMaterial = new THREE.SpriteMaterial({
+      map: glowTexture,
+      transparent: true,
+      opacity: 0.65,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const coreGlowSprite = new THREE.Sprite(glowMaterial);
+    coreGlowSprite.scale.set(180, 140, 1);
+    scene.add(coreGlowSprite);
+
+    // 6. Animation and Render Loop
     let time = 0;
+    let animId = null;
 
     const render = () => {
       time += 0.018;
 
-      const dpr = window.devicePixelRatio || 2;
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
+      const theme = themeRef.current;
+      const themeRayColor = parseThreeColor(theme.rayLine);
+      const themeTipColor = parseThreeColor(theme.tipDot);
+      const themeHighlight = parseThreeColor(theme.highlightGlow || theme.tipDot);
+      const themeCoreGlow = parseThreeColor(theme.coreGlow || theme.rayLine);
 
-      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-      }
-
-      ctx.save();
-      ctx.scale(dpr, dpr);
-      ctx.clearRect(0, 0, width, height);
-
-      const originX = width / 2;
-      const originY = height + 10;
-      const maxRadius = Math.min(width * 0.75, height * 0.92);
+      coreGlowSprite.material.color.copy(themeCoreGlow);
 
       const mouse = mouseRef.current;
       const isMouseActive = mouse.active;
 
-      // Check if mouse actively moved recently (within 40ms)
+      // Mouse speed tracking with stop timer
       const now = performance.now();
       if (now - mouse.lastMoveTime > 40) {
         mouse.speed = 0;
@@ -207,15 +396,25 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
       const isMouseMoving = isMouseActive && mouse.speed >= 1.0;
       const currentMouseSpeed = isMouseMoving ? Math.min(120, mouse.speed) : 0;
 
-      // Direction of cursor movement vector (e.g. vy < 0 when moving upward)
+      // Mouse position and velocity in Three.js coordinates (origin at center)
+      const mouseWorldX = mouse.x - width / 2;
+      const mouseWorldY = height / 2 - mouse.y;
+
       const mouseVelMag = Math.hypot(mouse.vx, mouse.vy);
+      // In Three.js: moving up is +Y, so invert mouse.vy
       const mouseDirX = mouseVelMag > 0.5 ? mouse.vx / mouseVelMag : 0;
-      const mouseDirY = mouseVelMag > 0.5 ? mouse.vy / mouseVelMag : 0;
+      const mouseDirY = mouseVelMag > 0.5 ? -mouse.vy / mouseVelMag : 0;
 
-      const rgb = extractRgb(currentTheme.rayLine);
-      const colorStop0 = `rgba(${rgb}, 0)`;
+      // Dandelion Base Origin (bottom center in Three.js space)
+      const originX = 0;
+      const originY = -height / 2 - 10;
+      const maxRadius = Math.min(width * 0.75, height * 0.92);
 
-      const rays = raysRef.current;
+      coreGlowSprite.position.set(originX, originY + 25, 0);
+
+      let stemVertexIdx = 0;
+      let dotIdx = 0;
+
       for (let i = 0; i < rays.length; i++) {
         const ray = rays[i];
 
@@ -224,26 +423,21 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         const baseLen = ray.lengthVariance * maxRadius + breath;
         const effectiveBaseLen = baseLen + ray.currentExtendLen;
 
+        // Base unperturbed tip position (upward in Three.js +Y)
         const baseTipX = originX + Math.cos(ray.baseAngle) * effectiveBaseLen;
-        const baseTipY = originY - Math.sin(ray.baseAngle) * effectiveBaseLen;
+        const baseTipY = originY + Math.sin(ray.baseAngle) * effectiveBaseLen;
 
         // Calculate distance from cursor directly to this ray's tip dot
-        // (Ensures only dots surrounding the cursor move; distant dots remain completely still)
         let targetInfluence = 0;
         let minDistToDot = 9999;
 
-        // Dynamic scale factor based on ray length (0.0 to 1.0):
-        // Core/bottom rays have lenRatio ~0.08 to 0.28 -> factor ~0.0 to 0.08
-        // Upper canopy rays have lenRatio ~0.70 to 1.0 -> factor ~0.60 to 1.0
         const lenRatio = Math.min(1.0, Math.max(0.08, baseLen / maxRadius));
         const factor = Math.pow((lenRatio - 0.08) / 0.92, 1.4);
 
         if (isMouseActive) {
-          const distToTip = Math.hypot(mouse.x - baseTipX, mouse.y - baseTipY);
+          const distToTip = Math.hypot(mouseWorldX - baseTipX, mouseWorldY - baseTipY);
           minDistToDot = distToTip;
 
-          // Localized hover radius: focused (~68px) near dense bottom core,
-          // expanding to spacious (~112px) for top outer canopy
           const hoverRadius = 68 + factor * 44;
           if (distToTip < hoverRadius) {
             targetInfluence = Math.pow(1 - distToTip / hoverRadius, 1.15);
@@ -255,195 +449,243 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         const inf = ray.hoverInfluence;
 
         // 360° Rotation Speed:
-        // Normal state (without hover): Gentle, continuous 360° orbital rotation for all lines
-        // On Hover with mouse movement: High-speed dynamic 360° rotation
+        // Normal state (without hover): Gentle continuous 360° orbital rotation for all lines
+        // On Hover with mouse movement: High-speed dynamic 360° rotation!
         const dir = Math.sign(ray.orbitSpeed);
-        const baseIdleSpeed = ray.orbitSpeed; // Natural calm 360° rotation in normal state
+        const baseIdleSpeed = ray.orbitSpeed;
 
-        // Fast dynamic speed boost only when mouse is actively moving over the lines
         const speedBoost = (isMouseMoving && inf > 0.01)
-          ? dir * (5.8 + currentMouseSpeed * 0.58) * inf 
+          ? dir * (5.8 + currentMouseSpeed * 0.58) * inf
           : 0;
 
         const targetVel = baseIdleSpeed + speedBoost;
 
         if (inf > 0.02 && !isMouseMoving) {
-          // When mouse stops over hovered lines, smoothly decelerate back to calm idle speed
           ray.angularVel += (baseIdleSpeed - ray.angularVel) * 0.28;
         } else {
           ray.angularVel += (targetVel - ray.angularVel) * 0.32;
         }
 
-        // Continuous 360° rotation: Advances every frame
         ray.orbitAngle += ray.angularVel * 0.018;
 
-        // Ray unit direction vector (pointing outward from origin)
+        // Ray unit direction vector (pointing outward from origin in Three.js)
         const rayDirX = Math.cos(ray.baseAngle);
-        const rayDirY = -Math.sin(ray.baseAngle);
+        const rayDirY = Math.sin(ray.baseAngle);
         const dotAlignment = mouseDirX * rayDirX + mouseDirY * rayDirY;
 
-        // 1. Directional Extension & Flow in cursor movement direction:
-        // E.g., when cursor moves bottom to top (mouseDirY < 0), close lines/points move upward and extend outward!
+        // 1. Directional Extension & Flow in cursor movement direction
         let targetFlowX = 0;
         let targetFlowY = 0;
         let targetExtendLen = 0;
 
         if (isMouseMoving && inf > 0.005) {
-          // Directional drag/flow displacement
           const flowScale = 0.20 + factor * 1.25;
           const maxFlowDist = (16 + Math.min(26, currentMouseSpeed * 0.35)) * flowScale;
           targetFlowX = mouseDirX * (inf * maxFlowDist);
           targetFlowY = mouseDirY * (inf * maxFlowDist);
 
-          // Radial length extension along ray direction
           const extendScale = 0.15 + factor * 1.35;
           const extendAmount = (14 + Math.min(24, currentMouseSpeed * 0.32)) * extendScale;
           targetExtendLen = Math.max(0, dotAlignment) * (inf * extendAmount);
         }
 
-        // Smooth spring physics for directional flow and radial length extension
         ray.currentFlowX += (targetFlowX - ray.currentFlowX) * 0.22;
         ray.currentFlowY += (targetFlowY - ray.currentFlowY) * 0.22;
         ray.currentExtendLen += (targetExtendLen - ray.currentExtendLen) * 0.22;
 
-        // 2. Repulsion away from cursor ("points with lines cursor se dur bhagni chahiye"):
-        // Bottom lines get gentle push (~14-18px), top lines get full dynamic push (~110-128px)
+        // 2. Repulsion away from cursor
         let targetRepelX = 0;
         let targetRepelY = 0;
         if (isMouseActive && minDistToDot < 9999 && inf > 0.005) {
-          const dx = baseTipX - mouse.x;
-          const dy = baseTipY - mouse.y;
+          const dx = baseTipX - mouseWorldX;
+          const dy = baseTipY - mouseWorldY;
           const d = Math.hypot(dx, dy) || 1;
           const nx = dx / d;
           const ny = dy / d;
 
-          const repelScale = 0.16 + factor * 1.44; // ~0.20 for bottom rays, ~1.60 for top rays
+          const repelScale = 0.16 + factor * 1.44;
           const maxRepel = (42 + Math.min(38, currentMouseSpeed * 0.45)) * repelScale;
           targetRepelX = nx * (inf * maxRepel);
           targetRepelY = ny * (inf * maxRepel);
         }
 
-        // Smooth spring physics for repulsion
         ray.currentRepelX += (targetRepelX - ray.currentRepelX) * 0.25;
         ray.currentRepelY += (targetRepelY - ray.currentRepelY) * 0.25;
 
-        // 3. Dynamic 360° orbital circle with directional expansion ("and also increase their radius accordingly"):
-        // Radius increases with motion speed and directional alignment
+        // 3. True 3D Orbital Rotation:
+        // Orbits in the plane perpendicular to the ray direction (Tangential XY + Depth Z!)
         const motionRadiusBoost = isMouseMoving ? (1.0 + Math.max(0, dotAlignment) * 0.35) : 1.0;
-        const radiusScale = 0.14 + factor * 1.56; // ~0.18 for bottom rays, ~1.70 for top rays
+        const radiusScale = 0.14 + factor * 1.56;
         const hoverRadiusAdd = inf * (42 + Math.min(48, currentMouseSpeed * 0.55)) * radiusScale * motionRadiusBoost;
         const currentOrbitRadius = (ray.orbitRadius * radiusScale) + hoverRadiusAdd;
-        const orbitDx = Math.cos(ray.orbitAngle) * currentOrbitRadius;
-        const orbitDy = Math.sin(ray.orbitAngle) * currentOrbitRadius * 0.65; // Fuller 3D circular form
-        const orbitDz = Math.sin(ray.orbitAngle); // depth layer factor
 
-        // Combined position: Base + 360° rotation + Repulsion + Directional flow
+        // Tangent vector perpendicular to ray in XY plane
+        const perpX = -Math.sin(ray.baseAngle);
+        const perpY = Math.cos(ray.baseAngle);
+
+        const orbitDx = perpX * Math.cos(ray.orbitAngle) * currentOrbitRadius;
+        const orbitDy = perpY * Math.cos(ray.orbitAngle) * currentOrbitRadius;
+        const orbitDz = Math.sin(ray.orbitAngle) * currentOrbitRadius * 1.15; // True 3D depth
+
+        // Final Tip Position in 3D Space
         const tipX = baseTipX + orbitDx + ray.currentRepelX + ray.currentFlowX;
         const tipY = baseTipY + orbitDy + ray.currentRepelY + ray.currentFlowY;
+        const tipZ = orbitDz;
 
-        // Organic flexible curve towards moving dot (entire stem sways with 360° circle, bends away, and flows with movement)
+        // Flexible Curved Stem in 3D:
         const midRatio = 0.52;
         const stemOrbitFactor = (0.22 + factor * 0.20) + inf * 0.20;
         const stemRepelFactor = 0.25 + factor * 0.30;
         const stemFlowFactor = 0.40 + factor * 0.25;
-        const midX = originX + Math.cos(ray.baseAngle) * (effectiveBaseLen * midRatio) 
-          + orbitDx * stemOrbitFactor 
-          + ray.currentRepelX * stemRepelFactor 
+
+        const midX = originX + Math.cos(ray.baseAngle) * (effectiveBaseLen * midRatio)
+          + orbitDx * stemOrbitFactor
+          + ray.currentRepelX * stemRepelFactor
           + ray.currentFlowX * stemFlowFactor;
-        const midY = originY - Math.sin(ray.baseAngle) * (effectiveBaseLen * midRatio) 
-          + orbitDy * stemOrbitFactor 
-          + ray.currentRepelY * stemRepelFactor 
+        const midY = originY + Math.sin(ray.baseAngle) * (effectiveBaseLen * midRatio)
+          + orbitDy * stemOrbitFactor
+          + ray.currentRepelY * stemRepelFactor
           + ray.currentFlowY * stemFlowFactor;
+        const midZ = orbitDz * stemOrbitFactor;
 
-        // Stem starting point
+        // Stem start point
         const uStart = Math.max(0.04, 1.0 - ray.stemFraction);
-        const pStart = getPointOnBezier(uStart, originX, originY, midX, midY, tipX, tipY);
-        const pMid = getPointOnBezier((uStart + 1.0) / 2, originX, originY, midX, midY, tipX, tipY);
+        const p0 = { x: originX, y: originY, z: 0 };
+        const pMid = { x: midX, y: midY, z: midZ };
+        const pTip = { x: tipX, y: tipY, z: tipZ };
 
-        const ctrlX = 2 * pMid.x - 0.5 * (pStart.x + tipX);
-        const ctrlY = 2 * pMid.y - 0.5 * (pStart.y + tipY);
+        // Solve for control point of quadratic bezier passing through pStart, pMid, pTip
+        const pStart = get3DBezierPoint(uStart, p0, pMid, pTip);
+        const pHalf = get3DBezierPoint((uStart + 1.0) / 2, p0, pMid, pTip);
 
-        // 3D Front/Back visibility:
-        // Visible for ~75-80% of the orbit, dipping away smoothly only at the deep rear apex
-        const lineVisibility = Math.max(0, Math.min(1.0, (orbitDz + 0.45) / 0.50));
+        const ctrl = {
+          x: 2 * pHalf.x - 0.5 * (pStart.x + tipX),
+          y: 2 * pHalf.y - 0.5 * (pStart.y + tipY),
+          z: 2 * pHalf.z - 0.5 * (pStart.z + tipZ)
+        };
 
-        if (lineVisibility > 0.01) {
-          const grad = ctx.createLinearGradient(pStart.x, pStart.y, tipX, tipY);
-          grad.addColorStop(0, colorStop0);
-          grad.addColorStop(0.2, `rgba(${rgb}, ${(0.06 + inf * 0.10) * lineVisibility})`);
-          grad.addColorStop(0.5, `rgba(${rgb}, ${(0.20 + inf * 0.18) * lineVisibility})`);
-          grad.addColorStop(0.8, `rgba(${rgb}, ${(0.48 + inf * 0.22) * lineVisibility})`);
-          grad.addColorStop(1, `rgba(${rgb}, ${(ray.tier === 'core' ? 0.48 : (0.82 + inf * 0.18)) * lineVisibility})`);
+        // 3D Front/Back visibility & lighting factor
+        // When swinging towards user (Z > 0), dot and line glow brighter!
+        const depthNorm = Math.max(0, Math.min(1.0, (tipZ / (currentOrbitRadius + 1)) * 0.5 + 0.5));
+        const lineBrightness = 0.60 + 0.40 * depthNorm;
 
-          ctx.beginPath();
-          ctx.moveTo(pStart.x, pStart.y);
-          ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
-          ctx.strokeStyle = grad;
-          const baseWidth = (ray.tier === 'core' ? 0.42 : (ray.tier === 'mid' ? 0.48 : (inf > 0.15 ? 0.78 : 0.55)));
-          const widthGrowth = (0.06 + factor * 0.20) * inf;
-          ctx.lineWidth = (baseWidth + widthGrowth) * (0.6 + 0.4 * lineVisibility);
-          ctx.stroke();
+        // Generate line segments along the 3D stem
+        let prevPt = pStart;
+        for (let seg = 1; seg <= SEGMENTS_PER_STEM; seg++) {
+          const uSeg = uStart + (seg / SEGMENTS_PER_STEM) * (1.0 - uStart);
+          const currPt = get3DBezierPoint(uSeg, pStart, ctrl, pTip);
 
-          // Tip Dot Node (only shown when rotating in front)
-          ctx.beginPath();
-          const depthScale = 1.0 + orbitDz * 0.18;
-          const dotGrowth = (0.12 + factor * 0.38) * inf;
-          const tipSize = ray.dotSize * (1.0 + dotGrowth) * depthScale;
-          ctx.arc(tipX, tipY, Math.max(0.6, tipSize), 0, Math.PI * 2);
-          ctx.fillStyle = currentTheme.tipDot;
-          ctx.globalAlpha = lineVisibility;
-          ctx.fill();
-          ctx.globalAlpha = 1.0;
+          const segAlpha0 = Math.pow((seg - 1) / SEGMENTS_PER_STEM, 1.3) * (0.10 + inf * 0.25) * lineBrightness;
+          const segAlpha1 = Math.pow(seg / SEGMENTS_PER_STEM, 1.3) * (0.80 + inf * 0.20) * lineBrightness;
+
+          // Vertex A
+          stemPositions[stemVertexIdx * 3] = prevPt.x;
+          stemPositions[stemVertexIdx * 3 + 1] = prevPt.y;
+          stemPositions[stemVertexIdx * 3 + 2] = prevPt.z;
+          stemAlphas[stemVertexIdx] = segAlpha0;
+          stemColors[stemVertexIdx * 3] = themeRayColor.r;
+          stemColors[stemVertexIdx * 3 + 1] = themeRayColor.g;
+          stemColors[stemVertexIdx * 3 + 2] = themeRayColor.b;
+          stemVertexIdx++;
+
+          // Vertex B
+          stemPositions[stemVertexIdx * 3] = currPt.x;
+          stemPositions[stemVertexIdx * 3 + 1] = currPt.y;
+          stemPositions[stemVertexIdx * 3 + 2] = currPt.z;
+          stemAlphas[stemVertexIdx] = segAlpha1;
+          stemColors[stemVertexIdx * 3] = themeRayColor.r;
+          stemColors[stemVertexIdx * 3 + 1] = themeRayColor.g;
+          stemColors[stemVertexIdx * 3 + 2] = themeRayColor.b;
+          stemVertexIdx++;
+
+          prevPt = currPt;
         }
 
-        // Intermediate Dot with its own subtle orbital swing (only shown when rotating in front)
-        if (ray.hasIntermediate && lineVisibility > 0.01) {
+        // Tip Dot (Point)
+        const dotGrowth = (0.12 + factor * 0.38) * inf;
+        const currentDotSize = ray.dotSize * (1.0 + dotGrowth) * (4.2 + depthNorm * 2.0);
+
+        dotPositions[dotIdx * 3] = tipX;
+        dotPositions[dotIdx * 3 + 1] = tipY;
+        dotPositions[dotIdx * 3 + 2] = tipZ;
+
+        // Color blend: hovered points glow with theme highlight
+        const dotCol = inf > 0.05 ? themeHighlight : themeTipColor;
+        dotColors[dotIdx * 3] = dotCol.r;
+        dotColors[dotIdx * 3 + 1] = dotCol.g;
+        dotColors[dotIdx * 3 + 2] = dotCol.b;
+
+        dotSizes[dotIdx] = currentDotSize;
+        dotAlphas[dotIdx] = 0.50 + 0.50 * depthNorm;
+        dotIdx++;
+
+        // Intermediate Dot (for outer canopy rays)
+        if (ray.hasIntermediate) {
           const imPos = ray.intermediatePos;
-          const imUStart = Math.max(0.04, imPos * (1.0 - ray.stemFraction));
-          const imStart = getPointOnBezier(imUStart, originX, originY, midX, midY, tipX, tipY);
-          const imMid = getPointOnBezier((imUStart + imPos) / 2, originX, originY, midX, midY, tipX, tipY);
-          const imEnd = getPointOnBezier(imPos, originX, originY, midX, midY, tipX, tipY);
+          const imPt = get3DBezierPoint(imPos, pStart, ctrl, pTip);
 
-          const imCtrlX = 2 * imMid.x - 0.5 * (imStart.x + imEnd.x);
-          const imCtrlY = 2 * imMid.y - 0.5 * (imStart.y + imEnd.y);
+          dotPositions[dotIdx * 3] = imPt.x;
+          dotPositions[dotIdx * 3 + 1] = imPt.y;
+          dotPositions[dotIdx * 3 + 2] = imPt.z;
 
-          const imGrad = ctx.createLinearGradient(imStart.x, imStart.y, imEnd.x, imEnd.y);
-          imGrad.addColorStop(0, colorStop0);
-          imGrad.addColorStop(0.3, `rgba(${rgb}, ${0.08 * lineVisibility})`);
-          imGrad.addColorStop(0.7, `rgba(${rgb}, ${0.22 * lineVisibility})`);
-          imGrad.addColorStop(1, `rgba(${rgb}, ${0.48 * lineVisibility})`);
+          dotColors[dotIdx * 3] = themeTipColor.r;
+          dotColors[dotIdx * 3 + 1] = themeTipColor.g;
+          dotColors[dotIdx * 3 + 2] = themeTipColor.b;
 
-          ctx.beginPath();
-          ctx.moveTo(imStart.x, imStart.y);
-          ctx.quadraticCurveTo(imCtrlX, imCtrlY, imEnd.x, imEnd.y);
-          ctx.strokeStyle = imGrad;
-          ctx.lineWidth = 0.45;
-          ctx.stroke();
-
-          ctx.beginPath();
-          const depthScale = 1.0 + orbitDz * 0.18;
-          ctx.arc(imEnd.x, imEnd.y, 0.85 * depthScale, 0, Math.PI * 2);
-          ctx.fillStyle = currentTheme.tipDot;
-          ctx.globalAlpha = lineVisibility;
-          ctx.fill();
-          ctx.globalAlpha = 1.0;
+          dotSizes[dotIdx] = 3.2 * (0.8 + 0.4 * depthNorm);
+          dotAlphas[dotIdx] = 0.40 + 0.45 * depthNorm;
+          dotIdx++;
         }
       }
 
-      ctx.restore();
-      animFrameRef.current = requestAnimationFrame(render);
+      // Mark Three.js attributes for GPU upload
+      stemPosAttr.needsUpdate = true;
+      stemAlphaAttr.needsUpdate = true;
+      stemColorAttr.needsUpdate = true;
+
+      dotPosAttr.needsUpdate = true;
+      dotColorAttr.needsUpdate = true;
+      dotSizeAttr.needsUpdate = true;
+      dotAlphaAttr.needsUpdate = true;
+
+      renderer.render(scene, camera);
+      animId = requestAnimationFrame(render);
     };
 
     render();
 
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    // 7. Resize Observer
+    const handleResize = () => {
+      if (!container) return;
+      width = container.clientWidth || window.innerWidth;
+      height = container.clientHeight || window.innerHeight;
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      updateCameraDistance(width, height);
     };
-  }, [currentTheme]);
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (animId) cancelAnimationFrame(animId);
+      if (renderer.domElement && container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement);
+      }
+      stemGeometry.dispose();
+      stemMaterial.dispose();
+      dotGeometry.dispose();
+      dotMaterial.dispose();
+      dotTexture.dispose();
+      glowTexture.dispose();
+      glowMaterial.dispose();
+      renderer.dispose();
+    };
+  }, []);
 
   const handleMouseMove = (e) => {
-    if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
     const mouse = mouseRef.current;
     const newX = e.clientX - rect.left;
     const newY = e.clientY - rect.top;
@@ -477,15 +719,11 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
 
   return (
     <div
+      ref={containerRef}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       className="relative w-full h-full flex flex-col justify-end items-center select-none overflow-hidden"
-    >
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full block"
-        style={{ width: '100%', height: '100%' }}
-      />
-    </div>
+      style={{ touchAction: 'none' }}
+    />
   );
 }

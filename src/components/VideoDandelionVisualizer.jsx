@@ -91,7 +91,7 @@ function generateOrbitalRays() {
   for (let i = 0; i < CANOPY_COUNT; i++) {
     const t = i / (CANOPY_COUNT - 1);
     const angleJitter = (rand() - 0.5) * 0.015;
-    const baseAngle = 0.08 + t * (Math.PI - 0.16) + angleJitter;
+    const baseAngle = 0.22 + t * (Math.PI - 0.44) + angleJitter;
 
     const lengthVariance = 0.50 + rand() * 0.50;
     const waveSpeed = 0.6 + rand() * 1.2;
@@ -126,7 +126,7 @@ function generateOrbitalRays() {
   for (let i = 0; i < MID_COUNT; i++) {
     const t = i / (MID_COUNT - 1);
     const angleJitter = (rand() - 0.5) * 0.022;
-    const baseAngle = 0.10 + t * (Math.PI - 0.20) + angleJitter;
+    const baseAngle = 0.24 + t * (Math.PI - 0.48) + angleJitter;
 
     const lengthVariance = 0.26 + rand() * 0.28;
     const waveSpeed = 0.5 + rand() * 0.9;
@@ -159,7 +159,7 @@ function generateOrbitalRays() {
   for (let i = 0; i < CORE_COUNT; i++) {
     const t = i / (CORE_COUNT - 1);
     const angleJitter = (rand() - 0.5) * 0.028;
-    const baseAngle = 0.12 + t * (Math.PI - 0.24) + angleJitter;
+    const baseAngle = 0.26 + t * (Math.PI - 0.52) + angleJitter;
 
     const lengthVariance = 0.08 + rand() * 0.20;
     const waveSpeed = 0.4 + rand() * 0.8;
@@ -331,7 +331,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           vAlpha = alpha;
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
           // Perspective size attenuation
-          gl_PointSize = size * (460.0 / -mvPosition.z);
+          gl_PointSize = size * (340.0 / -mvPosition.z);
           gl_Position = projectionMatrix * mvPosition;
         }
       `,
@@ -363,7 +363,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
       depthWrite: false
     });
     const coreGlowSprite = new THREE.Sprite(glowMaterial);
-    coreGlowSprite.scale.set(180, 140, 1);
+    coreGlowSprite.scale.set(120, 80, 1);
     scene.add(coreGlowSprite);
 
     // 6. Animation and Render Loop
@@ -407,10 +407,10 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
 
       // Dandelion Base Origin (bottom center in Three.js space)
       const originX = 0;
-      const originY = -height / 2 - 10;
-      const maxRadius = Math.min(width * 0.75, height * 0.92);
+      const originY = -height / 2;
+      const maxRadius = Math.min(width * 0.44, height * 0.58);
 
-      coreGlowSprite.position.set(originX, originY + 25, 0);
+      coreGlowSprite.position.set(originX, originY + 12, 0);
 
       let stemVertexIdx = 0;
       let dotIdx = 0;
@@ -419,7 +419,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         const ray = rays[i];
 
         // Breathing motion
-        const breath = Math.sin(time * ray.waveSpeed + ray.waveOffset) * 5;
+        const breath = Math.sin(time * ray.waveSpeed + ray.waveOffset) * 4;
         const baseLen = ray.lengthVariance * maxRadius + breath;
         const effectiveBaseLen = baseLen + ray.currentExtendLen;
 
@@ -438,7 +438,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           const distToTip = Math.hypot(mouseWorldX - baseTipX, mouseWorldY - baseTipY);
           minDistToDot = distToTip;
 
-          const hoverRadius = 68 + factor * 44;
+          const hoverRadius = 48 + factor * 38;
           if (distToTip < hoverRadius) {
             targetInfluence = Math.pow(1 - distToTip / hoverRadius, 1.15);
           }
@@ -480,12 +480,12 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
 
         if (isMouseMoving && inf > 0.005) {
           const flowScale = 0.20 + factor * 1.25;
-          const maxFlowDist = (16 + Math.min(26, currentMouseSpeed * 0.35)) * flowScale;
+          const maxFlowDist = (12 + Math.min(18, currentMouseSpeed * 0.28)) * flowScale;
           targetFlowX = mouseDirX * (inf * maxFlowDist);
           targetFlowY = mouseDirY * (inf * maxFlowDist);
 
           const extendScale = 0.15 + factor * 1.35;
-          const extendAmount = (14 + Math.min(24, currentMouseSpeed * 0.32)) * extendScale;
+          const extendAmount = (10 + Math.min(16, currentMouseSpeed * 0.25)) * extendScale;
           targetExtendLen = Math.max(0, dotAlignment) * (inf * extendAmount);
         }
 
@@ -504,7 +504,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           const ny = dy / d;
 
           const repelScale = 0.16 + factor * 1.44;
-          const maxRepel = (42 + Math.min(38, currentMouseSpeed * 0.45)) * repelScale;
+          const maxRepel = (28 + Math.min(24, currentMouseSpeed * 0.35)) * repelScale;
           targetRepelX = nx * (inf * maxRepel);
           targetRepelY = ny * (inf * maxRepel);
         }
@@ -516,7 +516,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
         // Orbits in the plane perpendicular to the ray direction (Tangential XY + Depth Z!)
         const motionRadiusBoost = isMouseMoving ? (1.0 + Math.max(0, dotAlignment) * 0.35) : 1.0;
         const radiusScale = 0.14 + factor * 1.56;
-        const hoverRadiusAdd = inf * (42 + Math.min(48, currentMouseSpeed * 0.55)) * radiusScale * motionRadiusBoost;
+        const hoverRadiusAdd = inf * (28 + Math.min(32, currentMouseSpeed * 0.45)) * radiusScale * motionRadiusBoost;
         const currentOrbitRadius = (ray.orbitRadius * radiusScale) + hoverRadiusAdd;
 
         // Tangent vector perpendicular to ray in XY plane
@@ -603,7 +603,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
 
         // Tip Dot (Point)
         const dotGrowth = (0.12 + factor * 0.38) * inf;
-        const currentDotSize = ray.dotSize * (1.0 + dotGrowth) * (4.2 + depthNorm * 2.0);
+        const currentDotSize = ray.dotSize * (1.0 + dotGrowth) * (2.8 + depthNorm * 1.5);
 
         dotPositions[dotIdx * 3] = tipX;
         dotPositions[dotIdx * 3 + 1] = tipY;
@@ -632,7 +632,7 @@ export default function VideoDandelionVisualizer({ currentTheme }) {
           dotColors[dotIdx * 3 + 1] = themeTipColor.g;
           dotColors[dotIdx * 3 + 2] = themeTipColor.b;
 
-          dotSizes[dotIdx] = 3.2 * (0.8 + 0.4 * depthNorm);
+          dotSizes[dotIdx] = 2.4 * (0.8 + 0.4 * depthNorm);
           dotAlphas[dotIdx] = 0.40 + 0.45 * depthNorm;
           dotIdx++;
         }
